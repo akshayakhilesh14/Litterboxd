@@ -1,3 +1,7 @@
+import uuid
+import boto3
+from fastapi import UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
 import logging
 from fastapi import FastAPI, HTTPException, status, Depends, Query
 from sqlalchemy import select, func, and_
@@ -20,7 +24,7 @@ from ai_service import generate_vibe_check
 from webhooks import notify_low_supply
 from error_handlers import (
     ValidationError, NotFoundError, ConflictError, InternalServerError,
-    validate_rating, validate_floor_number, validate_url, 
+    validate_rating, validate_floor_number, validate_url,
     validate_bathroom_id, validate_stall_number
 )
 from middleware import RequestLoggingMiddleware, ErrorLoggingMiddleware
@@ -46,7 +50,17 @@ app = FastAPI(
 app.add_middleware(ErrorLoggingMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 
-REGISTERED_BUILDINGS = {BuildingEnum.SIEBEL, BuildingEnum.GRAINGER, BuildingEnum.CIF}
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # allow all origins (dev only)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+REGISTERED_BUILDINGS = {BuildingEnum.SIEBEL,
+                        BuildingEnum.GRAINGER, BuildingEnum.CIF}
 LOW_SUPPLY_THRESHOLD = 4.0  # out of 10
 
 
@@ -63,7 +77,7 @@ async def create_bathroom(
 ):
     """
     Create a new bathroom entry.
-    
+
     **Status Codes:**
     - 201: Bathroom created successfully
     - 400: Invalid input data
@@ -71,19 +85,21 @@ async def create_bathroom(
     - 409: Bathroom already exists at this location
     - 500: Internal server error
     """
-    
-    logger.info(f"Creating bathroom: {bathroom.building_name} Floor {bathroom.floor_number}")
-    
+
+    logger.info(
+        f"Creating bathroom: {bathroom.building_name} Floor {bathroom.floor_number}")
+
     # Validate building is registered
     if bathroom.building_name not in REGISTERED_BUILDINGS:
-        logger.warning(f"Attempt to create bathroom with unregistered building: {bathroom.building_name}")
+        logger.warning(
+            f"Attempt to create bathroom with unregistered building: {bathroom.building_name}")
         raise ForbiddenError(
             message=f"Building {bathroom.building_name.value} not registered by faculty. Only {', '.join([b.value for b in REGISTERED_BUILDINGS])} are allowed."
         )
-    
+
     # Validate floor number
     validate_floor_number(bathroom.floor_number)
-    
+
     try:
         # Create new bathroom (store as plain string to match existing DB values)
         new_bathroom = BathroomModel(
@@ -91,24 +107,28 @@ async def create_bathroom(
             floor_number=bathroom.floor_number,
             bathroom_gender=bathroom.bathroom_gender.value,
             ai_review=None,
-            tp_supply=(bathroom.tp_supply.value if bathroom.tp_supply is not None else None),
-            hygiene_supply=(bathroom.hygiene_supply.value if bathroom.hygiene_supply is not None else None),
+            tp_supply=(
+                bathroom.tp_supply.value if bathroom.tp_supply is not None else None),
+            hygiene_supply=(
+                bathroom.hygiene_supply.value if bathroom.hygiene_supply is not None else None),
             last_cleaned=bathroom.last_cleaned,
             is_accessible=bathroom.is_accessible
         )
-        
+
         db.add(new_bathroom)
         await db.commit()
-        
-        logger.info(f"Bathroom created successfully with ID: {new_bathroom.bathroom_id}")
-        
+
+        logger.info(
+            f"Bathroom created successfully with ID: {new_bathroom.bathroom_id}")
+
         return {
             "bathroom_id": new_bathroom.bathroom_id,
             "message": "Bathroom indexed successfully."
         }
     except IntegrityError:
         await db.rollback()
-        logger.warning(f"Bathroom already exists at {bathroom.building_name} Floor {bathroom.floor_number}")
+        logger.warning(
+            f"Bathroom already exists at {bathroom.building_name} Floor {bathroom.floor_number}")
         raise ConflictError(
             message=f"Bathroom already exists at this location ({bathroom.building_name.value}, Floor {bathroom.floor_number}, {bathroom.bathroom_gender.value})"
         )
@@ -126,26 +146,27 @@ async def list_bathrooms(
     db: AsyncSession = Depends(get_db)
 ):
     """List all bathrooms, optionally filtered by building"""
-    
+
     query = select(BathroomModel).options(
         selectinload(BathroomModel.reviews),
         selectinload(BathroomModel.stalls)
     )
-    
+
     if building:
         try:
             building_enum = BuildingEnum(building)
             # compare against stored string value
-            query = query.where(BathroomModel.building_name == building_enum.value)
+            query = query.where(
+                BathroomModel.building_name == building_enum.value)
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid building: {building}"
             )
-    
+
     result = await db.execute(query)
     bathrooms = result.scalars().unique().all()
-    
+
     return bathrooms
 
 
@@ -156,17 +177,17 @@ async def get_bathroom(
 ):
     """
     Get a specific bathroom by ID.
-    
+
     **Status Codes:**
     - 200: Bathroom found and returned
     - 404: Bathroom not found
     - 500: Internal server error
     """
-    
+
     logger.info(f"Fetching bathroom {bathroom_id}")
-    
+
     validate_bathroom_id(bathroom_id)
-    
+
     try:
         query = select(BathroomModel).where(
             BathroomModel.bathroom_id == bathroom_id
@@ -174,14 +195,14 @@ async def get_bathroom(
             selectinload(BathroomModel.reviews),
             selectinload(BathroomModel.stalls)
         )
-        
+
         result = await db.execute(query)
         bathroom = result.scalar_one_or_none()
-        
+
         if not bathroom:
             logger.warning(f"Bathroom not found: {bathroom_id}")
             raise NotFoundError("Bathroom", f"ID {bathroom_id}")
-        
+
         return bathroom
     except Exception as e:
         if isinstance(e, NotFoundError):
@@ -190,97 +211,97 @@ async def get_bathroom(
         raise InternalServerError()
 
 
-@app.post("/v1/bathrooms/{bathroom_id}/reviews", response_model=ReviewResponse, status_code=status.HTTP_201_CREATED)
-async def add_review(
-    bathroom_id: int,
-    review_in: ReviewCreate,
-    user_id: str = Query(..., min_length=1, description="Student email or user ID"),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Add a review to a bathroom.
-    
-    **Status Codes:**
-    - 201: Review created successfully
-    - 400: Invalid input data or rating out of range
-    - 404: Bathroom not found
-    - 409: User already reviewed this bathroom
-    - 500: Internal server error
-    """
-    
-    logger.info(f"Adding review for bathroom {bathroom_id} by user {user_id}")
-    
-    # Validate inputs
-    validate_bathroom_id(bathroom_id)
-    validate_rating(review_in.rating, "rating")
-    
-    # Check if bathroom exists
-    bathroom_result = await db.execute(
-        select(BathroomModel).where(BathroomModel.bathroom_id == bathroom_id)
-    )
-    bathroom = bathroom_result.scalar_one_or_none()
-    
-    if not bathroom:
-        logger.warning(f"Bathroom not found: {bathroom_id}")
-        raise NotFoundError("Bathroom", f"ID {bathroom_id}")
-    
-    try:
-        # Create new review
-        new_review = ReviewModel(
-            bathroom_id=bathroom_id,
-            rating=review_in.rating,
-            comment=review_in.comment
-        )
-        
-        db.add(new_review)
-        await db.commit()
-        await db.refresh(new_review)
-        
-        logger.info(f"Review created successfully: ID {new_review.review_id}")
-        
-        # Update bathroom's AI review if there's a new review
-        await update_bathroom_ai_review(bathroom_id, db)
-        
-        # Check if low supply and trigger webhook
-        avg_rating = await get_bathroom_avg_rating(bathroom_id, db)
-        if avg_rating < LOW_SUPPLY_THRESHOLD:
-            # Get all active webhooks and notify
-            webhook_result = await db.execute(
-                select(WebhookModel).where(
-                    and_(
-                        WebhookModel.is_active == True,
-                        WebhookModel.event_type == "low_supply"
-                    )
-                )
-            )
-            webhooks = webhook_result.scalars().all()
-            webhook_urls = [w.url for w in webhooks]
-            
-            if webhook_urls:
-                logger.info(f"Low supply alert triggered for bathroom {bathroom_id}, rating: {avg_rating}")
-                await notify_low_supply(
-                    bathroom_id,
-                    getattr(bathroom.building_name, "value", bathroom.building_name),
-                    bathroom.floor_number,
-                    getattr(bathroom.bathroom_gender, "value", bathroom.bathroom_gender),
-                    avg_rating,
-                    webhook_urls
-                )
-        
-        return new_review
-        
-    except IntegrityError:
-        await db.rollback()
-        logger.warning(f"User {user_id} already reviewed bathroom {bathroom_id}")
-        raise ConflictError(
-            message=f"User {user_id} has already reviewed this bathroom. Use PUT to update your review."
-        )
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Error creating review: {str(e)}", exc_info=True)
-        raise InternalServerError(
-            message=f"Failed to create review: {str(e)}"
-        )
+# @app.post("/v1/bathrooms/{bathroom_id}/reviews", response_model=ReviewResponse, status_code=status.HTTP_201_CREATED)
+# async def add_review(
+#     bathroom_id: int,
+#     review_in: ReviewCreate,
+#     user_id: str = Query(..., min_length=1, description="Student email or user ID"),
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     """
+#     Add a review to a bathroom.
+
+#     **Status Codes:**
+#     - 201: Review created successfully
+#     - 400: Invalid input data or rating out of range
+#     - 404: Bathroom not found
+#     - 409: User already reviewed this bathroom
+#     - 500: Internal server error
+#     """
+
+#     logger.info(f"Adding review for bathroom {bathroom_id} by user {user_id}")
+
+#     # Validate inputs
+#     validate_bathroom_id(bathroom_id)
+#     validate_rating(review_in.rating, "rating")
+
+#     # Check if bathroom exists
+#     bathroom_result = await db.execute(
+#         select(BathroomModel).where(BathroomModel.bathroom_id == bathroom_id)
+#     )
+#     bathroom = bathroom_result.scalar_one_or_none()
+
+#     if not bathroom:
+#         logger.warning(f"Bathroom not found: {bathroom_id}")
+#         raise NotFoundError("Bathroom", f"ID {bathroom_id}")
+
+#     try:
+#         # Create new review
+#         new_review = ReviewModel(
+#             bathroom_id=bathroom_id,
+#             rating=review_in.rating,
+#             comment=review_in.comment
+#         )
+
+#         db.add(new_review)
+#         await db.commit()
+#         await db.refresh(new_review)
+
+#         logger.info(f"Review created successfully: ID {new_review.review_id}")
+
+#         # Update bathroom's AI review if there's a new review
+#         await update_bathroom_ai_review(bathroom_id, db)
+
+#         # Check if low supply and trigger webhook
+#         avg_rating = await get_bathroom_avg_rating(bathroom_id, db)
+#         if avg_rating < LOW_SUPPLY_THRESHOLD:
+#             # Get all active webhooks and notify
+#             webhook_result = await db.execute(
+#                 select(WebhookModel).where(
+#                     and_(
+#                         WebhookModel.is_active == True,
+#                         WebhookModel.event_type == "low_supply"
+#                     )
+#                 )
+#             )
+#             webhooks = webhook_result.scalars().all()
+#             webhook_urls = [w.url for w in webhooks]
+
+#             if webhook_urls:
+#                 logger.info(f"Low supply alert triggered for bathroom {bathroom_id}, rating: {avg_rating}")
+#                 await notify_low_supply(
+#                     bathroom_id,
+#                     getattr(bathroom.building_name, "value", bathroom.building_name),
+#                     bathroom.floor_number,
+#                     getattr(bathroom.bathroom_gender, "value", bathroom.bathroom_gender),
+#                     avg_rating,
+#                     webhook_urls
+#                 )
+
+#         return new_review
+
+#     except IntegrityError:
+#         await db.rollback()
+#         logger.warning(f"User {user_id} already reviewed bathroom {bathroom_id}")
+#         raise ConflictError(
+#             message=f"User {user_id} has already reviewed this bathroom. Use PUT to update your review."
+#         )
+#     except Exception as e:
+#         await db.rollback()
+#         logger.error(f"Error creating review: {str(e)}", exc_info=True)
+#         raise InternalServerError(
+#             message=f"Failed to create review: {str(e)}"
+#         )
 
 
 @app.post("/v1/bathrooms/{bathroom_id}/stalls", status_code=status.HTTP_200_OK, response_model=StallResponse)
@@ -291,30 +312,31 @@ async def post_stall_data(
 ):
     """
     Update stall occupancy status (from IoT sensors).
-    
+
     **Status Codes:**
     - 200: Stall status updated
     - 400: Invalid input data
     - 404: Bathroom not found
     - 500: Internal server error
     """
-    
-    logger.info(f"Updating stall {data.stall_number} for bathroom {bathroom_id}")
-    
+
+    logger.info(
+        f"Updating stall {data.stall_number} for bathroom {bathroom_id}")
+
     # Validate inputs
     validate_bathroom_id(bathroom_id)
     validate_stall_number(data.stall_number)
-    
+
     # Check if bathroom exists
     bathroom_result = await db.execute(
         select(BathroomModel).where(BathroomModel.bathroom_id == bathroom_id)
     )
     bathroom = bathroom_result.scalar_one_or_none()
-    
+
     if not bathroom:
         logger.warning(f"Bathroom not found: {bathroom_id}")
         raise NotFoundError("Bathroom", f"ID {bathroom_id}")
-    
+
     try:
         # Get or create stall
         stall_result = await db.execute(
@@ -326,7 +348,7 @@ async def post_stall_data(
             )
         )
         stall = stall_result.scalar_one_or_none()
-        
+
         if stall:
             stall.is_occupied = data.is_occupied
         else:
@@ -336,12 +358,12 @@ async def post_stall_data(
                 is_occupied=data.is_occupied
             )
             db.add(stall)
-        
+
         await db.commit()
         await db.refresh(stall)
-        
+
         return stall
-        
+
     except Exception as e:
         await db.rollback()
         logger.error(f"Error updating stall: {str(e)}")
@@ -357,41 +379,43 @@ async def get_vibe_check(
     db: AsyncSession = Depends(get_db)
 ):
     """Generate AI vibe check for a bathroom based on reviews"""
-    
+
     query = select(BathroomModel).where(
         BathroomModel.bathroom_id == bathroom_id
     ).options(selectinload(BathroomModel.reviews))
-    
+
     result = await db.execute(query)
     bathroom = result.scalar_one_or_none()
-    
+
     if not bathroom:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Bathroom not found"
         )
-    
+
     # Extract review comments
     review_comments = [r.comment for r in bathroom.reviews if r.comment]
-    
+
     if not review_comments:
         return {
             "bathroom_id": bathroom_id,
             "vibe_check": "No reviews yet. Be the first to describe this bathroom!"
         }
-    
+
     # Generate AI vibe check
     vibe_check = generate_vibe_check(
-        gender=getattr(bathroom.bathroom_gender, "value", bathroom.bathroom_gender),
-        building=getattr(bathroom.building_name, "value", bathroom.building_name),
+        gender=getattr(bathroom.bathroom_gender, "value",
+                       bathroom.bathroom_gender),
+        building=getattr(bathroom.building_name, "value",
+                         bathroom.building_name),
         floor=bathroom.floor_number,
         reviews=review_comments
     )
-    
+
     # Update AI review in database
     bathroom.ai_review = vibe_check
     await db.commit()
-    
+
     return {
         "bathroom_id": bathroom_id,
         "vibe_check": vibe_check
@@ -404,14 +428,13 @@ async def get_stalls(
     db: AsyncSession = Depends(get_db)
 ):
     """Get all stalls for a bathroom"""
-    
+
     result = await db.execute(
         select(StallModel).where(StallModel.bathroom_id == bathroom_id)
     )
     stalls = result.scalars().all()
-    
-    return stalls
 
+    return stalls
 
 
 @app.put("/v1/bathrooms/{bathroom_id}/reviews/{review_id}", response_model=ReviewResponse)
@@ -422,7 +445,7 @@ async def update_review(
     db: AsyncSession = Depends(get_db)
 ):
     """Update an existing review"""
-    
+
     # Get the review
     review_result = await db.execute(
         select(ReviewModel).where(
@@ -433,24 +456,24 @@ async def update_review(
         )
     )
     review = review_result.scalar_one_or_none()
-    
+
     if not review:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Review not found"
         )
-    
+
     try:
         # Update review
         review.rating = review_in.rating
         review.comment = review_in.comment
-        
+
         await db.commit()
         await db.refresh(review)
-        
+
         # Update bathroom's AI review
         await update_bathroom_ai_review(bathroom_id, db)
-        
+
         # Check low supply again
         avg_rating = await get_bathroom_avg_rating(bathroom_id, db)
         if avg_rating < LOW_SUPPLY_THRESHOLD:
@@ -464,24 +487,26 @@ async def update_review(
             )
             webhooks = webhook_result.scalars().all()
             webhook_urls = [w.url for w in webhooks]
-            
+
             if webhook_urls:
                 bathroom = await db.execute(
-                    select(BathroomModel).where(BathroomModel.bathroom_id == bathroom_id)
+                    select(BathroomModel).where(
+                        BathroomModel.bathroom_id == bathroom_id)
                 )
                 bath = bathroom.scalar_one()
-                
+
                 await notify_low_supply(
                     bathroom_id,
                     getattr(bath.building_name, "value", bath.building_name),
                     bath.floor_number,
-                    getattr(bath.bathroom_gender, "value", bath.bathroom_gender),
+                    getattr(bath.bathroom_gender, "value",
+                            bath.bathroom_gender),
                     avg_rating,
                     webhook_urls
                 )
-        
+
         return review
-        
+
     except Exception as e:
         await db.rollback()
         logger.error(f"Error updating review: {str(e)}")
@@ -491,7 +516,6 @@ async def update_review(
         )
 
 
-
 @app.post("/v1/webhooks", status_code=status.HTTP_201_CREATED, response_model=WebhookResponse)
 async def register_webhook(
     webhook: WebhookCreate,
@@ -499,34 +523,35 @@ async def register_webhook(
 ):
     """
     Register a webhook endpoint for low-supply alerts.
-    
+
     **Status Codes:**
     - 201: Webhook registered successfully
     - 400: Invalid URL format
     - 409: Webhook URL already registered
     - 500: Internal server error
     """
-    
+
     logger.info(f"Registering webhook: {webhook.url}")
-    
+
     # Validate URL format
     validate_url(webhook.url)
-    
+
     try:
         new_webhook = WebhookModel(
             url=webhook.url,
             event_type=webhook.event_type,
             is_active=True
         )
-        
+
         db.add(new_webhook)
         await db.commit()
         await db.refresh(new_webhook)
-        
-        logger.info(f"Webhook registered successfully: ID {new_webhook.webhook_id}")
-        
+
+        logger.info(
+            f"Webhook registered successfully: ID {new_webhook.webhook_id}")
+
         return new_webhook
-        
+
     except IntegrityError:
         await db.rollback()
         logger.warning(f"Webhook already registered: {webhook.url}")
@@ -549,15 +574,15 @@ async def list_webhooks(
     db: AsyncSession = Depends(get_db)
 ):
     """List all webhooks, optionally filtered by event type"""
-    
+
     query = select(WebhookModel)
-    
+
     if event_type:
         query = query.where(WebhookModel.event_type == event_type)
-    
+
     result = await db.execute(query)
     webhooks = result.scalars().all()
-    
+
     return webhooks
 
 
@@ -567,18 +592,18 @@ async def delete_webhook(
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a webhook"""
-    
+
     webhook_result = await db.execute(
         select(WebhookModel).where(WebhookModel.webhook_id == webhook_id)
     )
     webhook = webhook_result.scalar_one_or_none()
-    
+
     if not webhook:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Webhook not found"
         )
-    
+
     try:
         await db.delete(webhook)
         await db.commit()
@@ -598,29 +623,30 @@ async def add_favorite(
     db: AsyncSession = Depends(get_db)
 ):
     """Add a bathroom to user favorites"""
-    
+
     # Verify bathroom exists
     bathroom_result = await db.execute(
-        select(BathroomModel).where(BathroomModel.bathroom_id == favorite_in.bathroom_id)
+        select(BathroomModel).where(
+            BathroomModel.bathroom_id == favorite_in.bathroom_id)
     )
     if not bathroom_result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Bathroom not found"
         )
-    
+
     try:
         new_favorite = FavoriteModel(
             user_id=user_id,
             bathroom_id=favorite_in.bathroom_id
         )
-        
+
         db.add(new_favorite)
         await db.commit()
         await db.refresh(new_favorite)
-        
+
         return new_favorite
-        
+
     except IntegrityError:
         await db.rollback()
         raise HTTPException(
@@ -642,12 +668,12 @@ async def list_favorites(
     db: AsyncSession = Depends(get_db)
 ):
     """List user favorite bathrooms"""
-    
+
     result = await db.execute(
         select(FavoriteModel).where(FavoriteModel.user_id == user_id)
     )
     favorites = result.scalars().all()
-    
+
     return favorites
 
 
@@ -658,7 +684,7 @@ async def remove_favorite(
     db: AsyncSession = Depends(get_db)
 ):
     """Remove a bathroom from user favorites"""
-    
+
     favorite_result = await db.execute(
         select(FavoriteModel).where(
             and_(
@@ -668,13 +694,13 @@ async def remove_favorite(
         )
     )
     favorite = favorite_result.scalar_one_or_none()
-    
+
     if not favorite:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Favorite not found"
         )
-    
+
     try:
         await db.delete(favorite)
         await db.commit()
@@ -693,7 +719,7 @@ async def remove_favorite(
 async def health_check():
     """
     Health check endpoint.
-    
+
     **Status Codes:**
     - 200: Server is healthy and ready to accept requests
     """
@@ -726,17 +752,125 @@ async def update_bathroom_ai_review(bathroom_id: int, db: AsyncSession):
         ).options(selectinload(BathroomModel.reviews))
     )
     bathroom = bathroom_result.scalar_one_or_none()
-    
+
     if bathroom and bathroom.reviews:
         review_comments = [r.comment for r in bathroom.reviews if r.comment]
-        
+
         if review_comments:
             vibe_check = generate_vibe_check(
-                gender=getattr(bathroom.bathroom_gender, "value", bathroom.bathroom_gender),
-                building=getattr(bathroom.building_name, "value", bathroom.building_name),
+                gender=getattr(bathroom.bathroom_gender,
+                               "value", bathroom.bathroom_gender),
+                building=getattr(bathroom.building_name,
+                                 "value", bathroom.building_name),
                 floor=bathroom.floor_number,
                 reviews=review_comments
             )
             bathroom.ai_review = vibe_check
             await db.commit()
 
+
+# Initialize DigitalOcean Spaces client (can also do this at startup)
+session = boto3.session.Session()
+s3_client = session.client(
+    's3',
+    region_name='nyc3',  # e.g., 'nyc3'
+    endpoint_url='https://nyc3.digitaloceanspaces.com',
+    aws_access_key_id='DO00A9UE4DWXF984YR8N',
+    aws_secret_access_key='K0TsC6rZMlyOujgLg2De0K0mxzPG9B7fsb8/ZycyDgo'
+)
+
+
+async def upload_image_to_do_space(file: UploadFile) -> str:
+    """
+    Upload file to DigitalOcean Space and return public URL
+    """
+    ext = file.filename.split('.')[-1]
+    key = f"reviews/{uuid.uuid4()}.{ext}"
+
+    s3_client.upload_fileobj(
+        file.file,
+        'litterboxd-space',  # replace with your Space name
+        key,
+        ExtraArgs={'ACL': 'public-read', 'ContentType': file.content_type}
+    )
+
+    return f"https://litterboxd-space.nyc3.digitaloceanspaces.com/{key}"
+
+
+@app.post("/v1/bathrooms/{bathroom_id}/reviews", response_model=ReviewResponse, status_code=201)
+async def add_review(
+    bathroom_id: int,
+    rating: float = Form(..., ge=0, le=10),
+    comment: str = Form(None),
+    image: UploadFile = File(None),  # optional image
+    user_id: str = Query(..., min_length=1,
+                         description="Student email or user ID"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Add a review to a bathroom, optionally including an image.
+    """
+    # Validate bathroom exists
+    bathroom_result = await db.execute(
+        select(BathroomModel).where(BathroomModel.bathroom_id == bathroom_id)
+    )
+    bathroom = bathroom_result.scalar_one_or_none()
+    if not bathroom:
+        raise NotFoundError("Bathroom", f"ID {bathroom_id}")
+
+    # Validate rating
+    validate_rating(rating, "rating")
+
+    # Upload image if provided
+    image_url = None
+    if image:
+        image_url = await upload_image_to_do_space(image)
+
+    try:
+        new_review = ReviewModel(
+            bathroom_id=bathroom_id,
+            rating=rating,
+            comment=comment,
+            image_url=image_url
+        )
+        db.add(new_review)
+        await db.commit()
+        await db.refresh(new_review)
+
+        # Update AI vibe check
+        await update_bathroom_ai_review(bathroom_id, db)
+
+        # Trigger low supply webhooks if needed
+        avg_rating = await get_bathroom_avg_rating(bathroom_id, db)
+        if avg_rating < LOW_SUPPLY_THRESHOLD:
+            webhook_result = await db.execute(
+                select(WebhookModel).where(
+                    and_(WebhookModel.is_active == True,
+                         WebhookModel.event_type == "low_supply")
+                )
+            )
+            webhooks = webhook_result.scalars().all()
+            webhook_urls = [w.url for w in webhooks]
+            if webhook_urls:
+                await notify_low_supply(
+                    bathroom_id,
+                    getattr(bathroom.building_name, "value",
+                            bathroom.building_name),
+                    bathroom.floor_number,
+                    getattr(bathroom.bathroom_gender, "value",
+                            bathroom.bathroom_gender),
+                    avg_rating,
+                    webhook_urls
+                )
+
+        return new_review
+
+    except IntegrityError:
+        await db.rollback()
+        raise ConflictError(
+            message=f"User {user_id} has already reviewed this bathroom. Use PUT to update."
+        )
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error creating review: {str(e)}", exc_info=True)
+        raise InternalServerError(message=f"Failed to create review: {str(e)}")

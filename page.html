@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bathroom Review Form</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f5f5f5;
+      margin: 0;
+      padding: 0;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 50px auto;
+      background: #fff;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+
+    label {
+      display: block;
+      margin-top: 15px;
+      font-weight: bold;
+    }
+
+    input[type="number"],
+    textarea,
+    input[type="file"] {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      background-color: #4CAF50;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    button:hover {
+      background-color: #45a049;
+    }
+
+    .success,
+    .error {
+      margin-top: 20px;
+      padding: 10px;
+      border-radius: 4px;
+    }
+
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+    }
+
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>Submit Bathroom Review</h1>
+    <form id="reviewForm" enctype="multipart/form-data" method="post">
+      <label for="bathroomId">Bathroom ID:</label>
+      <input type="number" id="bathroomId" name="bathroom_id" min="1" required>
+
+      <label for="userId">Your User ID / Email:</label>
+      <input type="text" id="userId" name="user_id" required>
+
+      <label for="rating">Rating (0-10):</label>
+      <input type="number" id="rating" name="rating" min="0" max="10" required>
+
+      <label for="comment">Comment:</label>
+      <textarea id="comment" name="comment" placeholder="Add your comment here..."></textarea>
+
+      <label for="image">Upload Image (optional):</label>
+      <input type="file" id="image" name="image" accept="image/*">
+
+      <button type="submit">Submit Review</button>
+    </form>
+    <div id="responseMessage"></div>
+  </div>
+
+  <script>
+    const form = document.getElementById("reviewForm");
+    const responseMessage = document.getElementById("responseMessage");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const bathroomId = document.getElementById("bathroomId").value;
+      const userId = document.getElementById("userId").value;
+
+      const formData = new FormData(form);
+
+      try {
+        const response = await fetch(`http://localhost:8000/v1/bathrooms/${bathroomId}/reviews?user_id=${encodeURIComponent(userId)}`, {
+          method: "POST",
+          body: formData
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          responseMessage.innerHTML = `<div class="success">Review submitted successfully!<br>Review ID: ${data.review_id}${data.image_url ? `<br><img src="${data.image_url}" alt="Uploaded Image" style="max-width:100%; margin-top:10px;">` : ''}</div>`;
+          form.reset();
+        } else {
+          const errorData = await response.json();
+          responseMessage.innerHTML = `<div class="error">Error: ${errorData.detail || JSON.stringify(errorData)}</div>`;
+        }
+      } catch (err) {
+        responseMessage.innerHTML = `<div class="error">Network error: ${err.message}</div>`;
+      }
+    });
+  </script>
+</body>
+
+</html>

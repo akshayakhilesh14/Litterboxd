@@ -49,21 +49,23 @@ class BathroomModel(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
-    reviews = relationship("ReviewModel", back_populates="bathroom", cascade="all, delete-orphan")
-    stalls = relationship("StallModel", back_populates="bathroom", cascade="all, delete-orphan")
-    
-    __table_args__ = (
+    reviews = relationship(
+        "ReviewModel", back_populates="bathroom", cascade="all, delete-orphan")
+    stalls = relationship(
+        "StallModel", back_populates="bathroom", cascade="all, delete-orphan")
+
+    """image_url = __table_args__ = (
         UniqueConstraint('building_name', 'floor_number', 'bathroom_gender',
                          name='uq_bathroom_location'),
-    )
-    
+    )"""
+
     @property
     def avg_rating(self) -> float:
         """Calculate average rating from all reviews"""
         if not self.reviews:
             return 0.0
         return sum(r.rating for r in self.reviews) / len(self.reviews)
-    
+
     @property
     def is_low_supply(self) -> bool:
         """Check if bathroom is low supply"""
@@ -75,13 +77,15 @@ class ReviewModel(Base):
     __tablename__ = "reviews"
 
     review_id = Column(Integer, primary_key=True, autoincrement=True)
-    bathroom_id = Column(Integer, ForeignKey("bathrooms.bathroom_id"), nullable=False, index=True)
+    bathroom_id = Column(Integer, ForeignKey(
+        "bathrooms.bathroom_id"), nullable=False, index=True)
     rating = Column(Integer, nullable=False)  # CHECK (rating BETWEEN 1 AND 10)
     comment = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     # Relationships
     bathroom = relationship("BathroomModel", back_populates="reviews")
+    image_url = Column(String(500), nullable=True)
 
 
 class StallModel(Base):
@@ -89,15 +93,18 @@ class StallModel(Base):
     __tablename__ = "stalls"
 
     stall_number = Column(Integer, primary_key=True, autoincrement=True)
-    bathroom_id = Column(Integer, ForeignKey("bathrooms.bathroom_id"), nullable=False, index=True)
+    bathroom_id = Column(Integer, ForeignKey(
+        "bathrooms.bathroom_id"), nullable=False, index=True)
     is_occupied = Column(Boolean, default=False)
-    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_updated = Column(DateTime, default=datetime.utcnow,
+                          onupdate=datetime.utcnow)
 
     # Relationships
     bathroom = relationship("BathroomModel", back_populates="stalls")
 
     __table_args__ = (
-        UniqueConstraint('bathroom_id', 'stall_number', name='uq_bathroom_stall'),
+        UniqueConstraint('bathroom_id', 'stall_number',
+                         name='uq_bathroom_stall'),
     )
 
 
@@ -120,16 +127,17 @@ class FavoriteModel(Base):
 
     favorite_id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(String(100), nullable=False, index=True)
-    bathroom_id = Column(Integer, ForeignKey("bathrooms.bathroom_id"), nullable=False, index=True)
+    bathroom_id = Column(Integer, ForeignKey(
+        "bathrooms.bathroom_id"), nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
     bathroom = relationship("BathroomModel")
 
     __table_args__ = (
-        UniqueConstraint('user_id', 'bathroom_id', name='uq_user_bathroom_favorite'),
+        UniqueConstraint('user_id', 'bathroom_id',
+                         name='uq_user_bathroom_favorite'),
     )
-
 
 
 """
