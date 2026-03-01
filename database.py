@@ -9,7 +9,7 @@ load_dotenv()
 # DigitalOcean MySQL Connection String
 # Format: mysql+aiomysql://user:password@host:port/database
 MYSQL_USER = os.getenv("MYSQL_USER", "doadmin")
-MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD")
 MYSQL_HOST = os.getenv(
     "MYSQL_HOST", "litterboxd-hackillinois-do-user-33939044-0.k.db.ondigitalocean.com")
 MYSQL_PORT = os.getenv("MYSQL_PORT", "25060")
