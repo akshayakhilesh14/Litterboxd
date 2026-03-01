@@ -109,7 +109,7 @@ uvicorn main:app --reload
 - `POST /v1/bathrooms/{id}/stalls` - Update stall status
 - `GET /health` - Health check
 
-**Complete documentation:** See [API_DOCUMENTATION.md](./API_DOCUMENTATION.md)
+**Complete documentation:** See [API_GUIDE.md](./API_GUIDE.md)
 
 ## 🏗️ Architecture
 
