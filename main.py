@@ -40,11 +40,19 @@ from error_handlers import (
 from middleware import RequestLoggingMiddleware, ErrorLoggingMiddleware
 
 # Configure logging with more detail
+class RequestIdFilter(logging.Filter):
+    """Add request_id to log records if not present"""
+    def filter(self, record):
+        if not hasattr(record, 'request_id'):
+            record.request_id = 'none'
+        return True
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] %(message)s'
 )
 logger = logging.getLogger(__name__)
+logging.getLogger().addFilter(RequestIdFilter())
 
 # Create FastAPI app with metadata
 app = FastAPI(
@@ -953,6 +961,8 @@ async def add_review(
     bathroom_id: int,
     rating: float = Form(..., ge=0, le=10),
     comment: str = Form(None),
+    tp_supply: str = Form(..., description="Toilet paper supply level"),
+    hygiene_supply: str = Form(..., description="Hygiene product supply level"),
     image: UploadFile = File(None),  # optional image
     user_id: str = Query(..., min_length=1,
                          description="Student email or user ID"),
@@ -972,6 +982,13 @@ async def add_review(
     # Validate rating
     validate_rating(rating, "rating")
 
+    # Validate supply levels
+    valid_supplies = ["Low", "Medium", "High"]
+    if tp_supply not in valid_supplies:
+        raise ValidationError(f"tp_supply must be one of {valid_supplies}")
+    if hygiene_supply not in valid_supplies:
+        raise ValidationError(f"hygiene_supply must be one of {valid_supplies}")
+
     # Upload image if provided
     image_url = None
     if image:
@@ -985,6 +1002,11 @@ async def add_review(
             image_url=image_url
         )
         db.add(new_review)
+        
+        # Update bathroom supply levels
+        bathroom.tp_supply = tp_supply
+        bathroom.hygiene_supply = hygiene_supply
+        
         await db.commit()
         await db.refresh(new_review)
 

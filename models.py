@@ -151,6 +151,8 @@ class ReviewCreate(BaseModel):
     """Request model for creating/updating a review"""
     rating: int = Field(..., ge=1, le=10)
     comment: Optional[str] = None
+    tp_supply: Optional[str] = Field(None, description="Toilet paper supply level (Low/Medium/High)")
+    hygiene_supply: Optional[str] = Field(None, description="Hygiene product supply level (Low/Medium/High)")
 
 
 class ReviewResponse(BaseModel):
