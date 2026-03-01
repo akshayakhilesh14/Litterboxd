@@ -3,11 +3,12 @@
 **Complete Reference for Building with the Litterboxd API**
 
 Table of Contents:
-- [Setup & Configuration](#setup--configuration)
+
+- [Setup &amp; Configuration](#setup--configuration)
 - [Authentication](#authentication)
 - [Error Handling](#error-handling)
 - [API Endpoints](#api-endpoints)
-- [Request & Response Examples](#request--response-examples)
+- [Request &amp; Response Examples](#request--response-examples)
 - [Webhook Integration](#webhook-integration)
 - [Testing Guide](#testing-guide)
 - [Status Codes Reference](#status-codes-reference)
@@ -17,6 +18,7 @@ Table of Contents:
 ## Setup & Configuration
 
 ### Prerequisites
+
 - Python 3.10+
 - pip package manager
 - Google Gemini API key (free tier: https://makersuite.google.com/app/apikey)
@@ -46,9 +48,11 @@ uvicorn main:app --reload
 ### Environment Variables
 
 **Required:**
+
 - `GEMINI_API_KEY` - Your Google Gemini API key for AI summaries
 
 **Optional:**
+
 - `DATABASE_URL` - MySQL connection string (auto-configured for DigitalOcean)
 - `PORT` - Server port (default: 8000)
 - `HOST` - Server host (default: 0.0.0.0)
@@ -56,16 +60,19 @@ uvicorn main:app --reload
 ### Starting the Server
 
 **Development (with auto-reload):**
+
 ```bash
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 **Production (Gunicorn + Uvicorn):**
+
 ```bash
 gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
 ```
 
 Server will be available at:
+
 - **API:** http://localhost:8000/v1
 - **Swagger UI:** http://localhost:8000/docs
 - **ReDoc:** http://localhost:8000/redoc
@@ -77,6 +84,7 @@ Server will be available at:
 Currently, the API uses a simple `user_id` parameter for basic user tracking. All endpoints that require a user ID accept it as:
 
 **Query Parameter:**
+
 ```bash
 curl "http://localhost:8000/v1/bathrooms/1/reviews?user_id=student@university.edu"
 ```
@@ -109,18 +117,18 @@ All errors return a standardized JSON response:
 
 ### Error Types
 
-| Code | Status | Meaning | Example |
-|------|--------|---------|---------|
-| `VALIDATION_ERROR` | 400 | Invalid input data | Missing required field |
-| `INVALID_RATING` | 400 | Rating not 1-10 | rating: 15 |
-| `INVALID_FLOOR` | 400 | Floor < 0 | floor_number: -1 |
-| `INVALID_URL` | 400 | URL not http/https | url: "ftp://evil" |
-| `INVALID_ID` | 400 | ID not positive | bathroom_id: 0 |
-| `INVALID_STALL` | 400 | Stall number invalid | stall_number: -5 |
-| `NOT_FOUND` | 404 | Resource missing | GET /bathrooms/9999 |
-| `FORBIDDEN` | 403 | Operation denied | Building not registered |
-| `CONFLICT` | 409 | Duplicate entry | User already reviewed |
-| `INTERNAL_SERVER_ERROR` | 500 | Server error | Database timeout |
+| Code                      | Status | Meaning              | Example                 |
+| ------------------------- | ------ | -------------------- | ----------------------- |
+| `VALIDATION_ERROR`      | 400    | Invalid input data   | Missing required field  |
+| `INVALID_RATING`        | 400    | Rating not 1-10      | rating: 15              |
+| `INVALID_FLOOR`         | 400    | Floor < 0            | floor_number: -1        |
+| `INVALID_URL`           | 400    | URL not http/https   | url: "ftp://evil"       |
+| `INVALID_ID`            | 400    | ID not positive      | bathroom_id: 0          |
+| `INVALID_STALL`         | 400    | Stall number invalid | stall_number: -5        |
+| `NOT_FOUND`             | 404    | Resource missing     | GET /bathrooms/9999     |
+| `FORBIDDEN`             | 403    | Operation denied     | Building not registered |
+| `CONFLICT`              | 409    | Duplicate entry      | User already reviewed   |
+| `INTERNAL_SERVER_ERROR` | 500    | Server error         | Database timeout        |
 
 ### Request ID Tracking
 
@@ -143,29 +151,35 @@ tail -f api.log | grep "abc123-def456-ghi789"
 
 ### Quick Reference
 
-| Method | Endpoint | Status | Description |
-|--------|----------|--------|-------------|
-| **Bathrooms** |
-| POST | `/v1/bathrooms` | 201, 400, 403, 409, 500 | Create bathroom |
-| GET | `/v1/bathrooms` | 200, 400, 500 | List bathrooms |
-| GET | `/v1/bathrooms/{id}` | 200, 404, 500 | Get bathroom details |
-| **Reviews** |
-| POST | `/v1/bathrooms/{id}/reviews` | 201, 400, 404, 409, 500 | Add review |
-| PUT | `/v1/bathrooms/{id}/reviews/{id}` | 200, 400, 404, 500 | Update review |
-| GET | `/v1/bathrooms/{id}/vibe-check` | 200, 404, 500 | Get AI summary |
-| **Stalls (IoT)** |
-| POST | `/v1/bathrooms/{id}/stalls` | 200, 400, 404, 500 | Update stall |
-| GET | `/v1/bathrooms/{id}/stalls` | 200, 404, 500 | Get stall data |
-| **Webhooks** |
-| POST | `/v1/webhooks` | 201, 400, 409, 500 | Register webhook |
-| GET | `/v1/webhooks` | 200, 400, 500 | List webhooks |
-| DELETE | `/v1/webhooks/{id}` | 204, 404, 500 | Delete webhook |
-| **Favorites** |
-| POST | `/v1/users/{id}/favorites` | 201, 404, 409, 500 | Add favorite |
-| GET | `/v1/users/{id}/favorites` | 200, 500 | List favorites |
-| DELETE | `/v1/users/{id}/favorites/{id}` | 204, 404, 500 | Remove favorite |
-| **Health** |
-| GET | `/health` | 200 | Health check |
+| Method                         | Endpoint                                              | Status                  | Description                                                                                                                                                                     |
+| ------------------------------ | ----------------------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Locations**            |                                                       |                         |                                                                                                                                                                                 |
+| GET                            | `/v1/locations`                                     | 200, 500                | Bathroom map points:`bathroom_id`,`floor_number`,`building_name`,`longitude`,`latitude`, plus `stalls_open`/`stalls_total`(derived from current stall occupancy). |
+| **Bathrooms**            |                                                       |                         |                                                                                                                                                                                 |
+| POST                           | `/v1/bathrooms`                                     | 201, 400, 403, 409, 500 | Create bathroom                                                                                                                                                                 |
+| GET                            | `/v1/bathrooms`                                     | 200, 400, 500           | List bathrooms                                                                                                                                                                  |
+| GET                            | `/v1/bathrooms/{bathroom_id}`                       | 200, 404, 500           | Get bathroom details                                                                                                                                                            |
+| **Reviews**              |                                                       |                         |                                                                                                                                                                                 |
+| POST                           | `/v1/bathrooms/{bathroom_id}/reviews`               | 201, 400, 404, 409, 500 | Add review (multipart form:`rating`,`comment?`,`image?`), uploads image to DO Spaces.                                                                                     |
+| PUT                            | `/v1/bathrooms/{bathroom_id}/reviews/{review_id}`   | 200, 400, 404, 500      | Update review                                                                                                                                                                   |
+| GET                            | `/v1/bathrooms/{bathroom_id}/vibe-check`            | 200, 404, 500           | Get AI summary                                                                                                                                                                  |
+| **Stalls (IoT)**         |                                                       |                         |                                                                                                                                                                                 |
+| POST                           | `/v1/bathrooms/{bathroom_id}/stalls`                | 200, 400, 404, 500      | Update stall occupancy (by bathroom + stall number)                                                                                                                             |
+| GET                            | `/v1/bathrooms/{bathroom_id}/stalls`                | 200, 404, 500           | Get stall data for a bathroom                                                                                                                                                   |
+| **Sensors (IoT ingest)** |                                                       |                         |                                                                                                                                                                                 |
+| POST                           | `/v1/sensors/stalls`                                | 200, 400, 404, 500      | Sensor ingest JSON:`{"id":"<device_id>","stall_id":<int>,"is_occupied":true/false,"ts?":<int>,"seq?":<int>}`; updates `stalls`and appends `events`on state changes.       |
+| **Real-time**            |                                                       |                         |                                                                                                                                                                                 |
+| GET                            | `/v1/bathrooms/{bathroom_id}/availability-forecast` | 200, 400, 404, 500      | Predict probability that at least one stall will be free within `minutes`(query param `minutes`default 5, 1–60), using `stalls`+ historical `events`.                  |
+| **Webhooks**             |                                                       |                         |                                                                                                                                                                                 |
+| POST                           | `/v1/webhooks`                                      | 201, 400, 409, 500      | Register webhook                                                                                                                                                                |
+| GET                            | `/v1/webhooks`                                      | 200, 400, 500           | List webhooks                                                                                                                                                                   |
+| DELETE                         | `/v1/webhooks/{webhook_id}`                         | 204, 404, 500           | Delete webhook                                                                                                                                                                  |
+| **Favorites**            |                                                       |                         |                                                                                                                                                                                 |
+| POST                           | `/v1/users/{user_id}/favorites`                     | 201, 404, 409, 500      | Add favorite                                                                                                                                                                    |
+| GET                            | `/v1/users/{user_id}/favorites`                     | 200, 500                | List favorites                                                                                                                                                                  |
+| DELETE                         | `/v1/users/{user_id}/favorites/{bathroom_id}`       | 204, 404, 500           | Remove favorite                                                                                                                                                                 |
+| **Health**               |                                                       |                         |                                                                                                                                                                                 |
+| GET                            | `/health`                                           | 200                     | Health check                                                                                                                                                                    |
 
 ---
 
@@ -178,6 +192,7 @@ tail -f api.log | grep "abc123-def456-ghi789"
 Only bathrooms in registered buildings (Siebel, Grainger, CIF) can be created.
 
 **Request:**
+
 ```bash
 curl -X POST http://localhost:8000/v1/bathrooms \
   -H "Content-Type: application/json" \
@@ -192,6 +207,7 @@ curl -X POST http://localhost:8000/v1/bathrooms \
 ```
 
 **Response (201):**
+
 ```json
 {
   "bathroom_id": 1,
@@ -200,6 +216,7 @@ curl -X POST http://localhost:8000/v1/bathrooms \
 ```
 
 **Error - Invalid Building (403 Forbidden):**
+
 ```bash
 curl -X POST http://localhost:8000/v1/bathrooms \
   -H "Content-Type: application/json" \
@@ -211,6 +228,7 @@ curl -X POST http://localhost:8000/v1/bathrooms \
 ```
 
 **Response (403):**
+
 ```json
 {
   "error": {
@@ -226,6 +244,7 @@ curl -X POST http://localhost:8000/v1/bathrooms \
 ```
 
 **Error - Duplicate Bathroom (409 Conflict):**
+
 ```json
 {
   "error": {
@@ -239,6 +258,7 @@ curl -X POST http://localhost:8000/v1/bathrooms \
 ```
 
 **Error - Invalid Floor (400 Bad Request):**
+
 ```bash
 curl -X POST http://localhost:8000/v1/bathrooms \
   -H "Content-Type: application/json" \
@@ -250,6 +270,7 @@ curl -X POST http://localhost:8000/v1/bathrooms \
 ```
 
 **Response (400):**
+
 ```json
 {
   "error": {
@@ -271,6 +292,7 @@ curl http://localhost:8000/v1/bathrooms
 ```
 
 **Response:**
+
 ```json
 [
   {
@@ -292,6 +314,7 @@ curl http://localhost:8000/v1/bathrooms
 ```
 
 **Filter by Building:**
+
 ```bash
 curl "http://localhost:8000/v1/bathrooms?building=Grainger"
 ```
@@ -305,6 +328,7 @@ curl http://localhost:8000/v1/bathrooms/1
 ```
 
 **Response:**
+
 ```json
 {
   "bathroom_id": 1,
@@ -336,6 +360,7 @@ curl http://localhost:8000/v1/bathrooms/1
 ```
 
 **Error - Not Found (404):**
+
 ```json
 {
   "error": {
@@ -357,6 +382,7 @@ curl http://localhost:8000/v1/bathrooms/1
 **Important:** Reviews use **Form data**, not JSON body.
 
 **Request:**
+
 ```bash
 curl -X POST "http://localhost:8000/v1/bathrooms/1/reviews?user_id=student@example.com" \
   -F "rating=8" \
@@ -364,6 +390,7 @@ curl -X POST "http://localhost:8000/v1/bathrooms/1/reviews?user_id=student@examp
 ```
 
 **Response (201):**
+
 ```json
 {
   "review_id": 42,
@@ -375,6 +402,7 @@ curl -X POST "http://localhost:8000/v1/bathrooms/1/reviews?user_id=student@examp
 ```
 
 **Error - Invalid Rating (400):**
+
 ```bash
 curl -X POST "http://localhost:8000/v1/bathrooms/1/reviews?user_id=student@example.com" \
   -F "rating=15" \
@@ -382,6 +410,7 @@ curl -X POST "http://localhost:8000/v1/bathrooms/1/reviews?user_id=student@examp
 ```
 
 **Response (400):**
+
 ```json
 {
   "error": {
@@ -395,6 +424,7 @@ curl -X POST "http://localhost:8000/v1/bathrooms/1/reviews?user_id=student@examp
 ```
 
 **Error - Duplicate Review (409 Conflict):**
+
 ```json
 {
   "error": {
@@ -418,6 +448,7 @@ curl http://localhost:8000/v1/bathrooms/1/vibe-check
 ```
 
 **Response:**
+
 ```json
 {
   "bathroom_id": 1,
@@ -426,6 +457,7 @@ curl http://localhost:8000/v1/bathrooms/1/vibe-check
 ```
 
 **With No Reviews (200 OK):**
+
 ```json
 {
   "bathroom_id": 1,
@@ -442,6 +474,7 @@ curl http://localhost:8000/v1/bathrooms/1/vibe-check
 Perfect for IoT sensors (ESP32, Raspberry Pi).
 
 **Request:**
+
 ```bash
 curl -X POST http://localhost:8000/v1/bathrooms/1/stalls \
   -H "Content-Type: application/json" \
@@ -452,6 +485,7 @@ curl -X POST http://localhost:8000/v1/bathrooms/1/stalls \
 ```
 
 **Response (200):**
+
 ```json
 {
   "stall_number": 1,
@@ -462,6 +496,7 @@ curl -X POST http://localhost:8000/v1/bathrooms/1/stalls \
 ```
 
 **Error - Invalid Stall (400):**
+
 ```bash
 curl -X POST http://localhost:8000/v1/bathrooms/1/stalls \
   -H "Content-Type: application/json" \
@@ -472,6 +507,7 @@ curl -X POST http://localhost:8000/v1/bathrooms/1/stalls \
 ```
 
 **Response (400):**
+
 ```json
 {
   "error": {
@@ -493,6 +529,7 @@ curl http://localhost:8000/v1/bathrooms/1/stalls
 ```
 
 **Response:**
+
 ```json
 [
   {
@@ -519,6 +556,7 @@ curl http://localhost:8000/v1/bathrooms/1/stalls
 Receive automatic notifications when a bathroom rating drops below 4.0/10.
 
 **Request:**
+
 ```bash
 curl -X POST http://localhost:8000/v1/webhooks \
   -H "Content-Type: application/json" \
@@ -529,6 +567,7 @@ curl -X POST http://localhost:8000/v1/webhooks \
 ```
 
 **Response (201):**
+
 ```json
 {
   "webhook_id": 5,
@@ -542,6 +581,7 @@ curl -X POST http://localhost:8000/v1/webhooks \
 ```
 
 **Error - Invalid URL (400):**
+
 ```bash
 curl -X POST http://localhost:8000/v1/webhooks \
   -H "Content-Type: application/json" \
@@ -552,6 +592,7 @@ curl -X POST http://localhost:8000/v1/webhooks \
 ```
 
 **Response (400):**
+
 ```json
 {
   "error": {
@@ -565,6 +606,7 @@ curl -X POST http://localhost:8000/v1/webhooks \
 ```
 
 **Error - Duplicate URL (409 Conflict):**
+
 ```json
 {
   "error": {
@@ -586,6 +628,7 @@ curl http://localhost:8000/v1/webhooks
 ```
 
 **Response:**
+
 ```json
 [
   {
@@ -601,6 +644,7 @@ curl http://localhost:8000/v1/webhooks
 ```
 
 **Filter by Event Type:**
+
 ```bash
 curl "http://localhost:8000/v1/webhooks?event_type=low_supply"
 ```
@@ -616,6 +660,7 @@ curl -X DELETE http://localhost:8000/v1/webhooks/5
 **Response (204):** No body returned
 
 **Error - Not Found (404):**
+
 ```json
 {
   "error": {
@@ -641,6 +686,7 @@ curl -X POST http://localhost:8000/v1/users/student@example.com/favorites \
 ```
 
 **Response (201):**
+
 ```json
 {
   "favorite_id": 10,
@@ -651,6 +697,7 @@ curl -X POST http://localhost:8000/v1/users/student@example.com/favorites \
 ```
 
 **Error - Already Favorited (409 Conflict):**
+
 ```json
 {
   "error": {
@@ -672,6 +719,7 @@ curl http://localhost:8000/v1/users/student@example.com/favorites
 ```
 
 **Response:**
+
 ```json
 [
   {
@@ -693,7 +741,117 @@ curl -X DELETE http://localhost:8000/v1/users/student@example.com/favorites/1
 
 **Response (204):** No body returned
 
+## 6. Locations Endpoint (Map + Stall Counts)
+
+### Get Locations / Map Points (200 OK)
+
+Returns bathroom location + floor + building, **plus** current stall counts (`stalls_open`, `stalls_total`).
+
+**Request:**
+
+```bash
+curl http://localhost:8000/v1/locations
+```
+
+**Response (200):**
+
+```json
+[
+  {
+    "bathroom_id": 1,
+    "floor_number": 0,
+    "building_name": "Siebel",
+    "longitude": 88.2249,
+    "latitude": 40.1138,
+    "stalls_open": 2,
+    "stalls_total": 4
+  }
+]
+```
+
 ---
+
+## 7. Sensor Ingest Endpoint (ESP32 → API)
+
+### Sensor Stall Update (200 OK)
+
+Interrupt-driven ESP32 JSON POST target. Updates **current** stall state in `stalls` (and may log an event if your backend is configured to track history).
+
+**Request:**
+
+```bash
+curl -X POST http://localhost:8000/v1/sensors/stalls   -H "Content-Type: application/json"   -d '{
+    "id": "esp32-01",
+    "stall_id": 4,
+    "is_occupied": true
+  }'
+```
+
+**Response (200):**
+
+```json
+{
+  "stall_number": 4,
+  "bathroom_id": 1,
+  "is_occupied": true,
+  "last_updated": "2026-03-01T10:20:15"
+}
+```
+
+**Error - Stall Not Found (404):**
+
+```json
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Stall not found: stall_number 4",
+    "field": null,
+    "constraint": null
+  },
+  "status_code": 404
+}
+```
+
+---
+
+## 8. Availability Forecast Endpoint (Prediction)
+
+### Availability Forecast (200 OK)
+
+Predicts the probability that **at least one stall** becomes free within `minutes` (default 5, valid range 1–60).
+
+**Request:**
+
+```bash
+curl "http://localhost:8000/v1/bathrooms/1/availability-forecast?minutes=10"
+```
+
+**Response (200) — example shape:**
+
+```json
+{
+  "bathroom_id": 1,
+  "minutes": 10,
+  "probability_free_within_window": 0.73
+}
+```
+
+**Error - Bathroom Not Found (404):**
+
+```json
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Bathroom not found: ID 9999",
+    "field": null,
+    "constraint": null
+  },
+  "status_code": 404
+}
+```
+
+**Error - Invalid minutes (422):**
+FastAPI rejects out-of-range `minutes` automatically (must be 1–60).
 
 ## Webhook Integration
 
@@ -750,6 +908,7 @@ curl -X POST http://localhost:8000/v1/webhooks \
 ### Webhook Headers
 
 All webhook requests include:
+
 ```
 Content-Type: application/json
 X-Litterboxd-Signature: sha256=<signature>
@@ -803,12 +962,14 @@ curl "http://localhost:8000/v1/users/test1@example.com/favorites"
 Import the following requests as a Postman collection:
 
 **Environment Variable:**
+
 ```
 {{base_url}} = http://localhost:8000
 {{bathroom_id}} = 1
 ```
 
 Then import these requests:
+
 1. POST `/v1/bathrooms`
 2. GET `/v1/bathrooms`
 3. GET `/v1/bathrooms/{{bathroom_id}}`
@@ -824,16 +985,16 @@ Then import these requests:
 
 ## Status Codes Reference
 
-| Code | Meaning | When Used | Example |
-|------|---------|-----------|---------|
-| **200** | OK | Successful GET/update | GET /bathrooms/1 |
-| **201** | Created | Successful POST (new resource) | POST /bathrooms |
-| **204** | No Content | Successful DELETE | DELETE /webhooks/1 |
-| **400** | Bad Request | Invalid input validation | Invalid rating (>10) |
-| **403** | Forbidden | Operation not allowed | Building not registered |
-| **404** | Not Found | Resource doesn't exist | GET /bathrooms/9999 |
-| **409** | Conflict | Duplicate entry | User already reviewed |
-| **500** | Server Error | Unexpected error | Database connection failure |
+| Code          | Meaning      | When Used                      | Example                     |
+| ------------- | ------------ | ------------------------------ | --------------------------- |
+| **200** | OK           | Successful GET/update          | GET /bathrooms/1            |
+| **201** | Created      | Successful POST (new resource) | POST /bathrooms             |
+| **204** | No Content   | Successful DELETE              | DELETE /webhooks/1          |
+| **400** | Bad Request  | Invalid input validation       | Invalid rating (>10)        |
+| **403** | Forbidden    | Operation not allowed          | Building not registered     |
+| **404** | Not Found    | Resource doesn't exist         | GET /bathrooms/9999         |
+| **409** | Conflict     | Duplicate entry                | User already reviewed       |
+| **500** | Server Error | Unexpected error               | Database connection failure |
 
 ---
 
@@ -854,8 +1015,9 @@ Then import these requests:
 
 ### Issue: 422 Unprocessable Entity on /reviews
 
-**Cause:** Reviews expect Form data, not JSON  
+**Cause:** Reviews expect Form data, not JSON
 **Solution:** Use `-F` flag with curl:
+
 ```bash
 curl -X POST "http://localhost:8000/v1/bathrooms/1/reviews?user_id=test@example.com" \
   -F "rating=8" \
@@ -864,17 +1026,17 @@ curl -X POST "http://localhost:8000/v1/bathrooms/1/reviews?user_id=test@example.
 
 ### Issue: 403 Forbidden on POST /bathrooms
 
-**Cause:** Building name not in registered list (Siebel, Grainger, CIF)  
+**Cause:** Building name not in registered list (Siebel, Grainger, CIF)
 **Solution:** Use one of the registered building names or contact admin to register a new building
 
 ### Issue: 409 Conflict on POST /reviews
 
-**Cause:** User already reviewed this bathroom  
+**Cause:** User already reviewed this bathroom
 **Solution:** Use PUT to update the existing review, or use a different user_id
 
 ### Issue: Webhook not being triggered
 
-**Cause:** Average rating must be < 4.0 to trigger  
+**Cause:** Average rating must be < 4.0 to trigger
 **Solution:** Submit reviews with ratings below 4, then check webhook.site for POST delivery
 
 ---
@@ -882,10 +1044,12 @@ curl -X POST "http://localhost:8000/v1/bathrooms/1/reviews?user_id=test@example.
 ## Support & Debugging
 
 ### Interactive Documentation
+
 - **Swagger UI:** http://localhost:8000/docs
 - **ReDoc:** http://localhost:8000/redoc
 
 ### View Server Logs
+
 ```bash
 # Tail logs in real-time
 tail -f api.log
@@ -895,6 +1059,7 @@ grep "abc123-def456" api.log
 ```
 
 ### Check Database Connection
+
 ```bash
 python init_db.py  # Re-run initialization to verify DB connection
 ```
