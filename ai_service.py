@@ -5,12 +5,17 @@ from google import genai
 # 1. This secretly loads your GEMINI_API_KEY from the .env file
 load_dotenv()
 
-# 2. Initialize the Gemini client with explicit API key
-api_key = os.getenv("GEMINI_API_KEY")
-if not api_key:
-    raise ValueError("GEMINI_API_KEY environment variable is not set. Please add it to your .env file.")
+# 2. Lazy client so app can start without GEMINI_API_KEY (e.g. to test UI only)
+_client = None
 
-client = genai.Client(api_key=api_key)
+def _get_client():
+    global _client
+    if _client is None:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY environment variable is not set. Add it to .env to use vibe-check.")
+        _client = genai.Client(api_key=api_key)
+    return _client
 
 # 3. The Core Function
 
@@ -41,6 +46,7 @@ def generate_vibe_check(gender, building, floor, reviews):
     """
 
     # Call the Gemini 2.5 Flash model
+    client = _get_client()
     response = client.models.generate_content(
         model="gemini-2.5-flash",
         contents=prompt

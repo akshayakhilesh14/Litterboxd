@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Litterboxd – Bathrooms</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
+    h1 { margin-top: 0; }
+    .bar { margin-bottom: 20px; }
+    .bar a { margin-right: 12px; color: #0066cc; }
+    select { padding: 6px 10px; margin-right: 8px; }
+    table { border-collapse: collapse; width: 100%; max-width: 900px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; }
+    th { background: #f1f3f5; font-weight: 600; }
+    .vibe { font-size: 0.9em; color: #555; max-width: 400px; }
+    tr.row-available { background: #d4edda; }
+    tr.row-partial { background: #fff3cd; }
+    tr.row-occupied { background: #f8d7da; }
+    tr.row-unknown { background: #fff; }
+    .err { color: #c00; padding: 10px; background: #fff5f5; margin-top: 10px; }
+    .loading { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Litterboxd</h1>
+  <div class="bar">
+    <label>Building: </label>
+    <select id="building">
+      <option value="">All</option>
+      <option value="Siebel">Siebel</option>
+      <option value="Grainger">Grainger</option>
+      <option value="CIF">CIF</option>
+    </select>
+    <a href="/review">Submit a review</a>
+    <a href="/map">Map / Locations (lat, lng)</a>
+  </div>
+  <div id="content">
+    <p class="loading">Loading bathrooms…</p>
+  </div>
+
+  <script>
+    const content = document.getElementById('content');
+    const buildingSelect = document.getElementById('building');
+
+    function getBathrooms() {
+      const building = buildingSelect.value;
+      const url = building ? `/v1/bathrooms?building=${encodeURIComponent(building)}` : '/v1/bathrooms';
+      return fetch(url).then(r => {
+        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+        return r.json();
+      });
+    }
+
+    function renderList(bathrooms) {
+      if (!bathrooms.length) {
+        content.innerHTML = '<p>No bathrooms found.</p>';
+        return;
+      }
+      let html = '<table><thead><tr><th>ID</th><th>Building</th><th>Floor</th><th>Gender</th><th>Stalls open</th><th>Avg</th><th>Comments Overview</th><th></th></tr></thead><tbody>';
+      for (const b of bathrooms) {
+        const building = b.building_name?.value ?? b.building_name;
+        const gender = displayGender(b.bathroom_gender);
+        const avg = (b.avg_rating != null) ? Number(b.avg_rating).toFixed(1) : '–';
+        const commentsOverview = (b.ai_review || '').trim() ? `<span class="vibe">${escapeHtml(b.ai_review)}</span>` : '–';
+        const stalls = b.stalls || [];
+        const total = stalls.length;
+        const open = stalls.filter(s => !s.is_occupied).length;
+        const stallsText = total ? open + '/' + total + ' open' : '–';
+        let rowClass = 'row-unknown';
+        if (total > 0) {
+          if (open === 0) rowClass = 'row-occupied';
+          else if (open < total) rowClass = 'row-partial';
+          else rowClass = 'row-available';
+        }
+        html += `<tr class="${rowClass}">
+          <td>${b.bathroom_id}</td>
+          <td>${escapeHtml(building)}</td>
+          <td>${b.floor_number}</td>
+          <td>${escapeHtml(gender) || '–'}</td>
+          <td>${stallsText}</td>
+          <td>${avg}</td>
+          <td>${commentsOverview}</td>
+          <td><a href="/review?bathroom_id=${b.bathroom_id}">Review</a></td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+      content.innerHTML = html;
+    }
+
+    function displayGender(raw) {
+      const s = raw?.value ?? raw;
+      if (s === 'Sombr') return 'Male';
+      if (s === 'Gracie Abrams') return 'Female';
+      return s ?? '';
+    }
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    function load() {
+      content.innerHTML = '<p class="loading">Loading bathrooms…</p>';
+      getBathrooms()
+        .then(renderList)
+        .catch(e => {
+          content.innerHTML = `<p class="err">Failed to load: ${escapeHtml(e.message)}</p>`;
+        });
+    }
+
+    buildingSelect.addEventListener('change', load);
+    load();
+  </script>
+</body>
+</html>

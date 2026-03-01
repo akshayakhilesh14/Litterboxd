@@ -47,6 +47,8 @@ class BathroomModel(Base):
     last_cleaned = Column(DateTime, nullable=True)
     is_accessible = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    longitude = Column(Float, nullable=True)
+    latitude = Column(Float, nullable=True)
 
     # Relationships
     reviews = relationship(
@@ -157,6 +159,7 @@ class ReviewResponse(BaseModel):
     bathroom_id: int
     rating: int
     comment: Optional[str]
+    image_url: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -201,6 +204,8 @@ class BathroomResponse(BaseModel):
     is_low_supply: bool = False
     reviews: List[ReviewResponse] = []
     stalls: List[StallResponse] = []
+    longitude: Optional[float] = None
+    latitude: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -264,8 +269,17 @@ class Bathroom(BaseModel):
 
 
 class SensorStallUpdate(BaseModel):
+    """Sensor ingest payload for stall occupancy."""
     id: str = Field(..., description="Device ID")
-    stall_id: int
+    stall_id: int = Field(..., description="Stall number (stall_number in DB)")
     is_occupied: bool
-    ts: int | None = None
-    seq: int | None = None
+    ts: Optional[int] = None
+    seq: Optional[int] = None
+
+
+class BathroomMapPoint(BaseModel):
+    """Map point for bathroom location (e.g. GET /v1/locations)."""
+    floor_number: int
+    building_name: str
+    longitude: float
+    latitude: float

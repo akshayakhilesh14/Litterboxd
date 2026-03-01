@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Locations (lat, lng) – Litterboxd</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
+    h1 { margin-top: 0; }
+    .bar { margin-bottom: 20px; }
+    .bar a { margin-right: 12px; color: #0066cc; }
+    table { border-collapse: collapse; width: 100%; max-width: 780px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; }
+    th { background: #f1f3f5; font-weight: 600; }
+    tr.row-available { background: #d4edda; }
+    tr.row-partial { background: #fff3cd; }
+    tr.row-occupied { background: #f8d7da; }
+    tr.row-unknown { background: #e9ecef; }
+    .err { color: #c00; padding: 10px; background: #fff5f5; margin-top: 10px; }
+    .loading { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Map / Locations</h1>
+  <div class="bar">
+    <a href="/">← Bathrooms</a>
+    <a href="/review">Submit a review</a>
+  </div>
+  <div id="content">
+    <p class="loading">Loading locations…</p>
+  </div>
+
+  <script>
+    const content = document.getElementById('content');
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    fetch('/v1/locations')
+      .then(r => {
+        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+        return r.json();
+      })
+      .then(locations => {
+        if (!locations.length) {
+          content.innerHTML = '<p>No locations yet. Add longitude/latitude to bathrooms in the DB.</p>';
+          return;
+        }
+        let html = '<table><thead><tr><th>Stalls open</th><th>Building</th><th>Floor</th><th>Longitude</th><th>Latitude</th></tr></thead><tbody>';
+        for (const loc of locations) {
+          const lng = loc.longitude != null ? Number(loc.longitude).toFixed(5) : '–';
+          const lat = loc.latitude != null ? Number(loc.latitude).toFixed(5) : '–';
+          const total = loc.stalls_total || 0;
+          const open = loc.stalls_open ?? 0;
+          let rowClass = 'row-unknown';
+          let status = 'No stall data';
+          if (total > 0) {
+            status = open + '/' + total + ' open';
+            if (open === 0) rowClass = 'row-occupied';
+            else if (open < total) rowClass = 'row-partial';
+            else rowClass = 'row-available';
+          }
+          html += `<tr class="${rowClass}">
+            <td><strong>${escapeHtml(status)}</strong></td>
+            <td>${escapeHtml(loc.building_name)}</td>
+            <td>${loc.floor_number}</td>
+            <td>${lng}</td>
+            <td>${lat}</td>
+          </tr>`;
+        }
+        html += '</tbody></table>';
+        content.innerHTML = html;
+      })
+      .catch(e => {
+        content.innerHTML = `<p class="err">Failed to load: ${escapeHtml(e.message)}</p>`;
+      });
+  </script>
+</body>
+</html>

@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 import boto3
 from fastapi import UploadFile, File, Form, Body
@@ -8,7 +9,10 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, List
+
+from fastapi.responses import FileResponse
 
 from database import AsyncSession, init_db, get_db
 from models import (
@@ -18,12 +22,15 @@ from models import (
     WebhookCreate, WebhookResponse,
     FavoriteCreate, FavoriteResponse,
     StallUpdate, StallResponse,
-    BuildingEnum, SensorStallUpdate
+    BuildingEnum,
+    BathroomMapPoint,
+    SensorStallUpdate,
 )
 from ai_service import generate_vibe_check
 from webhooks import notify_low_supply
 from error_handlers import (
     ValidationError, NotFoundError, ConflictError, InternalServerError,
+    ForbiddenError,
     validate_rating, validate_floor_number, validate_url,
     validate_bathroom_id, validate_stall_number
 )
@@ -59,15 +66,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# First route registered: locations (so it's never shadowed). Your running process must load THIS file.
+@app.get("/v1/locations", tags=["Locations"])
+async def get_v1_locations(db: AsyncSession = Depends(get_db)) -> List[dict]:
+    """Bathroom map points: floor, building, longitude, latitude, and stall occupancy (has_available_stall)."""
+    result = await db.execute(
+        select(BathroomModel)
+        .options(selectinload(BathroomModel.stalls))
+    )
+    bathrooms = result.scalars().unique().all()
+    out = []
+    for b in bathrooms:
+        stalls_total = len(b.stalls) if b.stalls else 0
+        stalls_open = sum(1 for s in b.stalls if not s.is_occupied) if b.stalls else 0
+        out.append({
+            "bathroom_id": b.bathroom_id,
+            "floor_number": b.floor_number,
+            "building_name": b.building_name,
+            "longitude": float(b.longitude) if b.longitude is not None else None,
+            "latitude": float(b.latitude) if b.latitude is not None else None,
+            "stalls_open": stalls_open,
+            "stalls_total": stalls_total,
+        })
+    return out
+
+
 REGISTERED_BUILDINGS = {BuildingEnum.SIEBEL,
                         BuildingEnum.GRAINGER, BuildingEnum.CIF}
 LOW_SUPPLY_THRESHOLD = 4.0  # out of 10
 
+@app.get("/locations", include_in_schema=False)
+async def list_bathroom_map_points_alias(db: AsyncSession = Depends(get_db)) -> List[dict]:
+    """Alias for GET /v1/locations (same response including has_available_stall)."""
+    return await get_v1_locations(db)
+
 
 @app.on_event("startup")
 async def startup():
-    """Initialize database on startup"""
-    await init_db()
+    """Initialize database on startup (non-blocking so server comes up even if DB is slow/unreachable)."""
+    try:
+        await asyncio.wait_for(init_db(), timeout=10.0)
+        logger.info("Database initialized.")
+    except asyncio.TimeoutError:
+        logger.warning("Database init timed out after 10s. Server is up; first DB request may fail.")
+    except Exception as e:
+        logger.warning("Database init failed: %s. Server is up; first DB request may fail.", e)
 
 
 @app.post("/v1/bathrooms", status_code=status.HTTP_201_CREATED, response_model=dict)
@@ -731,6 +775,29 @@ async def health_check():
     }
 
 
+# ===== MINIMUM UI (optional; revert by removing these two routes and static/) =====
+
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+@app.get("/", include_in_schema=False)
+async def ui_index():
+    """Serve list-of-bathrooms UI."""
+    return FileResponse(_STATIC_DIR / "index.html")
+
+
+@app.get("/review", include_in_schema=False)
+async def ui_review():
+    """Serve review form UI."""
+    return FileResponse(_STATIC_DIR / "review.html")
+
+
+@app.get("/map", include_in_schema=False)
+async def ui_map():
+    """Serve locations/map UI (longitude, latitude)."""
+    return FileResponse(_STATIC_DIR / "map.html")
+
+
 # ===== HELPER FUNCTIONS =====
 
 async def get_bathroom_avg_rating(bathroom_id: int, db: AsyncSession) -> float:
@@ -883,38 +950,25 @@ async def sensor_post_stall_update(
 ):
     """
     Sensor ingest endpoint.
-    Expects JSON: {"id":"<device_id>","stall_id":<int>,"is_occupied":true/false}
+    Expects JSON: {"id": "<device_id>", "stall_id": <int>, "is_occupied": true/false}
     Updates stalls table by stall_number (= stall_id) and sets last_updated.
     """
-
-    # Validate stall number
     validate_stall_number(payload.stall_id)
-
     try:
-        # Find the stall row by stall_number (stall_id from sensor)
         stall_result = await db.execute(
-            select(StallModel).where(
-                StallModel.stall_number == payload.stall_id)
+            select(StallModel).where(StallModel.stall_number == payload.stall_id)
         )
         stall = stall_result.scalar_one_or_none()
-
         if not stall:
             raise NotFoundError("Stall", f"stall_number {payload.stall_id}")
-
-        # Update occupancy + timestamp
         stall.is_occupied = payload.is_occupied
         stall.last_updated = datetime.utcnow()
-
         await db.commit()
         await db.refresh(stall)
-
         return stall
-
     except Exception as e:
         await db.rollback()
         if isinstance(e, NotFoundError):
             raise
-        logger.error(
-            f"Error ingesting sensor stall update: {str(e)}", exc_info=True)
-        raise InternalServerError(
-            message=f"Failed to ingest sensor update: {str(e)}")
+        logger.error(f"Error ingesting sensor stall update: {str(e)}", exc_info=True)
+        raise InternalServerError(message=f"Failed to ingest sensor update: {str(e)}")
