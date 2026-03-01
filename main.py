@@ -798,6 +798,18 @@ async def ui_map():
     return FileResponse(_STATIC_DIR / "map.html")
 
 
+@app.get("/favorites", include_in_schema=False)
+async def ui_favorites():
+    """Serve My Favorites UI."""
+    return FileResponse(_STATIC_DIR / "favorites.html")
+
+
+@app.get("/reviews", include_in_schema=False)
+async def ui_reviews():
+    """Serve bathroom reviews list UI (individual reviews for one bathroom)."""
+    return FileResponse(_STATIC_DIR / "reviews.html")
+
+
 # ===== HELPER FUNCTIONS =====
 
 async def get_bathroom_avg_rating(bathroom_id: int, db: AsyncSession) -> float:

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bathroom Reviews – Litterboxd</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
+    .container { max-width: 720px; margin: 0 auto; background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+    h1 { margin-top: 0; }
+    .meta { color: #666; margin-bottom: 16px; }
+    .meta span { margin-right: 16px; }
+    .ai-overview { background: #f1f3f5; padding: 12px 16px; border-radius: 6px; margin: 16px 0; border-left: 4px solid #0066cc; }
+    .ai-overview h3 { margin: 0 0 8px 0; font-size: 1em; color: #333; }
+    .reviews-list { margin-top: 24px; }
+    .reviews-list h2 { font-size: 1.1em; margin-bottom: 12px; }
+    .review-card { border: 1px solid #eee; border-radius: 6px; padding: 14px 16px; margin-bottom: 12px; background: #fafafa; }
+    .review-card .rating { font-weight: 600; color: #333; }
+    .review-card .comment { margin: 8px 0 0 0; color: #444; white-space: pre-wrap; }
+    .review-card .date { font-size: 0.85em; color: #888; margin-top: 8px; }
+    .review-card img { max-width: 100%; max-height: 200px; border-radius: 4px; margin-top: 8px; }
+    .empty-reviews { color: #888; font-style: italic; padding: 16px 0; }
+    a { color: #0066cc; }
+    .actions { margin-top: 20px; }
+    .actions a { margin-right: 16px; }
+    .loading { color: #666; }
+    .err { color: #c00; padding: 12px; background: #fff5f5; border-radius: 4px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <p><a href="/">← Back to bathrooms</a></p>
+    <div id="content">
+      <p class="loading">Loading…</p>
+    </div>
+    <div id="actions" class="actions" style="display: none;">
+      <a href="#" id="submitReviewLink">Submit a review</a> for this bathroom
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const params = new URLSearchParams(location.search);
+      const bathroomId = params.get('bathroom_id');
+      const content = document.getElementById('content');
+      const actionsEl = document.getElementById('actions');
+      const submitLink = document.getElementById('submitReviewLink');
+
+      if (!bathroomId) {
+        content.innerHTML = '<p class="err">Missing bathroom_id. Use a link from the bathroom list.</p>';
+        return;
+      }
+
+      submitLink.href = '/review?bathroom_id=' + encodeURIComponent(bathroomId);
+
+      fetch('/v1/bathrooms/' + encodeURIComponent(bathroomId))
+        .then(r => {
+          if (!r.ok) throw new Error(r.status === 404 ? 'Bathroom not found' : 'Failed to load bathroom');
+          return r.json();
+        })
+        .then(b => {
+          const building = b.building_name?.value ?? b.building_name ?? '–';
+          const gender = (b.bathroom_gender?.value ?? b.bathroom_gender) === 'Sombr' ? 'Male' : (b.bathroom_gender?.value ?? b.bathroom_gender) === 'Gracie Abrams' ? 'Female' : (b.bathroom_gender?.value ?? b.bathroom_gender) ?? '–';
+          const floor = b.floor_number ?? '–';
+          const avg = (b.avg_rating != null) ? Number(b.avg_rating).toFixed(1) : '–';
+
+          let html = '<h1>Reviews</h1>';
+          html += '<div class="meta"><span><strong>Building:</strong> ' + escapeHtml(building) + '</span><span><strong>Floor:</strong> ' + escapeHtml(String(floor)) + '</span><span><strong>Gender:</strong> ' + escapeHtml(gender) + '</span><span><strong>Avg rating:</strong> ' + avg + '</span></div>';
+
+          if ((b.ai_review || '').trim()) {
+            html += '<div class="ai-overview"><h3>Comments overview</h3><p>' + escapeHtml(b.ai_review) + '</p></div>';
+          }
+
+          html += '<div class="reviews-list"><h2>Individual reviews</h2>';
+          const reviews = b.reviews || [];
+          if (reviews.length === 0) {
+            html += '<p class="empty-reviews">No reviews yet. Be the first to <a href="/review?bathroom_id=' + encodeURIComponent(bathroomId) + '">submit a review</a>.</p>';
+          } else {
+            reviews.forEach(r => {
+              const dateStr = r.created_at ? new Date(r.created_at).toLocaleString() : '';
+              html += '<div class="review-card">';
+              html += '<span class="rating">' + escapeHtml(String(r.rating)) + '/10</span>';
+              if (r.comment) html += '<p class="comment">' + escapeHtml(r.comment) + '</p>';
+              if (r.image_url) html += '<img src="' + escapeHtml(r.image_url) + '" alt="Review image">';
+              if (dateStr) html += '<p class="date">' + escapeHtml(dateStr) + '</p>';
+              html += '</div>';
+            });
+          }
+          html += '</div>';
+
+          content.innerHTML = html;
+          actionsEl.style.display = 'block';
+        })
+        .catch(e => {
+          content.innerHTML = '<p class="err">' + escapeHtml(e.message || 'Could not load bathroom.') + '</p>';
+        });
+
+      function escapeHtml(s) {
+        if (s == null) return '';
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+      }
+    })();
+  </script>
+</body>
+</html>

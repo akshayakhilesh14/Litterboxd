@@ -50,6 +50,13 @@
       if (bid) {
         document.getElementById('bathroomId').value = bid;
       }
+      const savedUserId = sessionStorage.getItem('litterboxd_user_id');
+      if (savedUserId) {
+        document.getElementById('userId').value = savedUserId;
+        document.getElementById('userId').readOnly = true;
+      } else {
+        document.getElementById('userId').readOnly = false;
+      }
     })();
 
     const form = document.getElementById('reviewForm');
@@ -77,6 +84,11 @@
           form.reset();
           const bid = new URLSearchParams(location.search).get('bathroom_id');
           if (bid) document.getElementById('bathroomId').value = bid;
+          const savedUserId = sessionStorage.getItem('litterboxd_user_id');
+          if (savedUserId) {
+            document.getElementById('userId').value = savedUserId;
+            document.getElementById('userId').readOnly = true;
+          }
         } else {
           const detail = typeof data.detail === 'string' ? data.detail : (data.detail?.message || JSON.stringify(data.detail || data));
           responseMessage.innerHTML = `<div class="error">Error: ${detail}</div>`;

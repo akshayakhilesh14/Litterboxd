@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Favorites – Litterboxd</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
+    h1 { margin-top: 0; }
+    .bar { margin-bottom: 20px; }
+    .bar a { margin-right: 12px; color: #0066cc; }
+    table { border-collapse: collapse; width: 100%; max-width: 900px; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; }
+    th { background: #f1f3f5; font-weight: 600; }
+    .vibe { font-size: 0.9em; color: #555; max-width: 400px; }
+    tr.row-available { background: #d4edda; }
+    tr.row-partial { background: #fff3cd; }
+    tr.row-occupied { background: #f8d7da; }
+    tr.row-unknown { background: #fff; }
+    .err { color: #c00; padding: 10px; background: #fff5f5; margin-top: 10px; }
+    .loading { color: #666; }
+    .star { cursor: pointer; font-size: 1.4em; user-select: none; color: #f0ad4e; }
+    .star:hover { opacity: 0.9; }
+    .no-user { max-width: 400px; background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+  </style>
+</head>
+<body>
+  <h1>★ My Favorites</h1>
+  <div class="bar">
+    <a href="/">← All bathrooms</a>
+    <a href="/review">Submit a review</a>
+    <a href="/map">Map / Locations</a>
+  </div>
+  <div id="content">
+    <p class="loading">Loading…</p>
+  </div>
+
+  <script>
+    const USER_KEY = 'litterboxd_user_id';
+    const content = document.getElementById('content');
+
+    function getUserId() {
+      return sessionStorage.getItem(USER_KEY) || '';
+    }
+
+    function displayGender(raw) {
+      const s = raw?.value ?? raw;
+      if (s === 'Sombr') return 'Male';
+      if (s === 'Gracie Abrams') return 'Female';
+      return s ?? '';
+    }
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    function removeFavorite(bathroomId) {
+      const uid = getUserId();
+      return fetch('/v1/users/' + encodeURIComponent(uid) + '/favorites/' + bathroomId, { method: 'DELETE' });
+    }
+
+    function load() {
+      const uid = getUserId();
+      if (!uid) {
+        content.innerHTML = '<div class="no-user"><p>Please enter your User ID on the <a href="/">home page</a> first, then you can favorite bathrooms and see them here.</p></div>';
+        return;
+      }
+
+      content.innerHTML = '<p class="loading">Loading favorites…</p>';
+
+      Promise.all([
+        fetch('/v1/users/' + encodeURIComponent(uid) + '/favorites').then(r => r.ok ? r.json() : []),
+        fetch('/v1/bathrooms').then(r => r.ok ? r.json() : [])
+      ]).then(([favList, bathrooms]) => {
+        const favIds = new Set((favList || []).map(f => f.bathroom_id));
+        const favBathrooms = (bathrooms || []).filter(b => favIds.has(b.bathroom_id));
+
+        if (!favBathrooms.length) {
+          content.innerHTML = '<p>No favorites yet. Go to the <a href="/">bathroom list</a> and click the ☆ star to favorite one.</p>';
+          return;
+        }
+
+        let html = '<table><thead><tr><th></th><th>ID</th><th>Building</th><th>Floor</th><th>Gender</th><th>Stalls open</th><th>Avg</th><th>Comments Overview</th><th></th></tr></thead><tbody>';
+        for (const b of favBathrooms) {
+          const building = b.building_name?.value ?? b.building_name;
+          const gender = displayGender(b.bathroom_gender);
+          const avg = (b.avg_rating != null) ? Number(b.avg_rating).toFixed(1) : '–';
+          const commentsOverview = (b.ai_review || '').trim() ? `<span class="vibe">${escapeHtml(b.ai_review)}</span>` : '–';
+          const stalls = b.stalls || [];
+          const total = stalls.length;
+          const open = stalls.filter(s => !s.is_occupied).length;
+          const stallsText = total ? open + '/' + total + ' open' : '–';
+          let rowClass = 'row-unknown';
+          if (total > 0) {
+            if (open === 0) rowClass = 'row-occupied';
+            else if (open < total) rowClass = 'row-partial';
+            else rowClass = 'row-available';
+          }
+          html += `<tr class="${rowClass}">
+            <td><span class="star" data-bathroom-id="${b.bathroom_id}" title="Remove from favorites">★</span></td>
+            <td>${b.bathroom_id}</td>
+            <td>${escapeHtml(building)}</td>
+            <td>${b.floor_number}</td>
+            <td>${escapeHtml(gender) || '–'}</td>
+            <td>${stallsText}</td>
+            <td>${avg}</td>
+            <td>${commentsOverview}</td>
+            <td><a href="/reviews?bathroom_id=${b.bathroom_id}">Reviews</a></td>
+          </tr>`;
+        }
+        html += '</tbody></table>';
+        content.innerHTML = html;
+
+        content.querySelectorAll('.star').forEach(el => {
+          el.addEventListener('click', function() {
+            const bid = parseInt(this.dataset.bathroomId, 10);
+            removeFavorite(bid).then(r => {
+              if (r.ok || r.status === 204) load();
+            }).catch(() => {});
+          });
+        });
+      }).catch(e => {
+        content.innerHTML = '<p class="err">Failed to load: ' + escapeHtml(e.message) + '</p>';
+      });
+    }
+
+    load();
+  </script>
+</body>
+</html>

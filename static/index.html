@@ -20,28 +20,80 @@
     tr.row-unknown { background: #fff; }
     .err { color: #c00; padding: 10px; background: #fff5f5; margin-top: 10px; }
     .loading { color: #666; }
+    .user-gate { max-width: 400px; background: #fff; padding: 24px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+    .user-gate label { display: block; font-weight: 600; margin-bottom: 8px; }
+    .user-gate input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+    .user-gate button { margin-top: 12px; padding: 10px 20px; background: #0066cc; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+    .user-gate button:hover { background: #0052a3; }
+    .star { cursor: pointer; font-size: 1.4em; user-select: none; }
+    .star.filled { color: #f0ad4e; }
+    .star.outline { color: #ccc; }
+    .star:hover { opacity: 0.9; }
+    .signed-in { font-size: 0.9em; color: #666; margin-right: 12px; }
   </style>
 </head>
 <body>
   <h1>Litterboxd</h1>
-  <div class="bar">
-    <label>Building: </label>
-    <select id="building">
-      <option value="">All</option>
-      <option value="Siebel">Siebel</option>
-      <option value="Grainger">Grainger</option>
-      <option value="CIF">CIF</option>
-    </select>
-    <a href="/review">Submit a review</a>
-    <a href="/map">Map / Locations (lat, lng)</a>
+  <div id="user-gate" class="user-gate" style="display: none;">
+    <p style="margin-top: 0;">Enter your User ID / Email to continue. It will be used for reviews and favorites.</p>
+    <label for="userIdInput">Your User ID / Email</label>
+    <input type="text" id="userIdInput" placeholder="e.g. netid@illinois.edu" autocomplete="email">
+    <button type="button" id="continueBtn">Continue</button>
   </div>
-  <div id="content">
-    <p class="loading">Loading bathrooms…</p>
+
+  <div id="main-view" style="display: none;">
+    <div class="bar">
+      <span class="signed-in" id="signedInAs"></span>
+      <a href="/favorites" id="favoritesLink">★ My Favorites</a>
+      <label>Building: </label>
+      <select id="building">
+        <option value="">All</option>
+        <option value="Siebel">Siebel</option>
+        <option value="Grainger">Grainger</option>
+        <option value="CIF">CIF</option>
+      </select>
+      <a href="/review">Submit a review</a>
+      <a href="/map">Map / Locations (lat, lng)</a>
+    </div>
+    <div id="content">
+      <p class="loading">Loading bathrooms…</p>
+    </div>
   </div>
 
   <script>
+    const USER_KEY = 'litterboxd_user_id';
     const content = document.getElementById('content');
     const buildingSelect = document.getElementById('building');
+    const userGate = document.getElementById('user-gate');
+    const mainView = document.getElementById('main-view');
+
+    function getUserId() {
+      return sessionStorage.getItem(USER_KEY) || '';
+    }
+
+    function setUserId(val) {
+      sessionStorage.setItem(USER_KEY, (val || '').trim());
+    }
+
+    function showView() {
+      const id = getUserId();
+      if (!id) {
+        userGate.style.display = 'block';
+        mainView.style.display = 'none';
+        return;
+      }
+      userGate.style.display = 'none';
+      mainView.style.display = 'block';
+      document.getElementById('signedInAs').textContent = 'Signed in as ' + id;
+      load();
+    }
+
+    document.getElementById('continueBtn').onclick = function() {
+      const val = document.getElementById('userIdInput').value.trim();
+      if (!val) return;
+      setUserId(val);
+      showView();
+    };
 
     function getBathrooms() {
       const building = buildingSelect.value;
@@ -52,12 +104,36 @@
       });
     }
 
-    function renderList(bathrooms) {
+    function getFavorites() {
+      const uid = getUserId();
+      if (!uid) return Promise.resolve([]);
+      return fetch('/v1/users/' + encodeURIComponent(uid) + '/favorites').then(r => {
+        if (!r.ok) return [];
+        return r.json();
+      }).then(list => list.map(f => f.bathroom_id)).catch(() => []);
+    }
+
+    function addFavorite(bathroomId) {
+      const uid = getUserId();
+      return fetch('/v1/users/' + encodeURIComponent(uid) + '/favorites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bathroom_id: bathroomId })
+      });
+    }
+
+    function removeFavorite(bathroomId) {
+      const uid = getUserId();
+      return fetch('/v1/users/' + encodeURIComponent(uid) + '/favorites/' + bathroomId, { method: 'DELETE' });
+    }
+
+    function renderList(bathrooms, favoriteIds) {
       if (!bathrooms.length) {
         content.innerHTML = '<p>No bathrooms found.</p>';
         return;
       }
-      let html = '<table><thead><tr><th>ID</th><th>Building</th><th>Floor</th><th>Gender</th><th>Stalls open</th><th>Avg</th><th>Comments Overview</th><th></th></tr></thead><tbody>';
+      const favSet = new Set(favoriteIds || []);
+      let html = '<table><thead><tr><th></th><th>ID</th><th>Building</th><th>Floor</th><th>Gender</th><th>Stalls open</th><th>Avg</th><th>Comments Overview</th><th></th></tr></thead><tbody>';
       for (const b of bathrooms) {
         const building = b.building_name?.value ?? b.building_name;
         const gender = displayGender(b.bathroom_gender);
@@ -73,7 +149,11 @@
           else if (open < total) rowClass = 'row-partial';
           else rowClass = 'row-available';
         }
+        const isFav = favSet.has(b.bathroom_id);
+        const starClass = isFav ? 'star filled' : 'star outline';
+        const starChar = isFav ? '★' : '☆';
         html += `<tr class="${rowClass}">
+          <td><span class="${starClass}" data-bathroom-id="${b.bathroom_id}" data-fav="${isFav}" title="${isFav ? 'Unfavorite' : 'Favorite'}">${starChar}</span></td>
           <td>${b.bathroom_id}</td>
           <td>${escapeHtml(building)}</td>
           <td>${b.floor_number}</td>
@@ -81,11 +161,24 @@
           <td>${stallsText}</td>
           <td>${avg}</td>
           <td>${commentsOverview}</td>
-          <td><a href="/review?bathroom_id=${b.bathroom_id}">Review</a></td>
+          <td><a href="/reviews?bathroom_id=${b.bathroom_id}">Reviews</a></td>
         </tr>`;
       }
       html += '</tbody></table>';
       content.innerHTML = html;
+
+      content.querySelectorAll('.star').forEach(el => {
+        el.addEventListener('click', function() {
+          const bid = parseInt(this.dataset.bathroomId, 10);
+          const isFav = this.dataset.fav === 'true';
+          const promise = isFav ? removeFavorite(bid) : addFavorite(bid);
+          promise.then(r => {
+            if (r.ok || r.status === 204) {
+              getFavorites().then(ids => renderList(bathrooms, ids));
+            }
+          }).catch(() => {});
+        });
+      });
     }
 
     function displayGender(raw) {
@@ -104,15 +197,15 @@
 
     function load() {
       content.innerHTML = '<p class="loading">Loading bathrooms…</p>';
-      getBathrooms()
-        .then(renderList)
+      Promise.all([getBathrooms(), getFavorites()])
+        .then(([bathrooms, favoriteIds]) => renderList(bathrooms, favoriteIds))
         .catch(e => {
           content.innerHTML = `<p class="err">Failed to load: ${escapeHtml(e.message)}</p>`;
         });
     }
 
     buildingSelect.addEventListener('change', load);
-    load();
+    showView();
   </script>
 </body>
 </html>
