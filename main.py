@@ -11,6 +11,9 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
+from models import EventModel
+import math
+from sqlalchemy import text
 
 from fastapi.responses import FileResponse
 
@@ -347,14 +350,14 @@ async def get_bathroom(
 #             message=f"Failed to create review: {str(e)}"
 #         )
 
-
+"""
 @app.post("/v1/bathrooms/{bathroom_id}/stalls", status_code=status.HTTP_200_OK, response_model=StallResponse)
 async def post_stall_data(
     bathroom_id: int,
     data: StallUpdate,
     db: AsyncSession = Depends(get_db)
 ):
-    """
+    
     Update stall occupancy status (from IoT sensors).
 
     **Status Codes:**
@@ -362,7 +365,7 @@ async def post_stall_data(
     - 400: Invalid input data
     - 404: Bathroom not found
     - 500: Internal server error
-    """
+    
 
     logger.info(
         f"Updating stall {data.stall_number} for bathroom {bathroom_id}")
@@ -415,6 +418,75 @@ async def post_stall_data(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error"
         )
+"""
+
+@app.post("/v1/bathrooms/{bathroom_id}/stalls", 
+          status_code=status.HTTP_200_OK, 
+          response_model=StallResponse)
+async def post_stall_data(
+    bathroom_id: int,
+    data: StallUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    logger.info(f"Updating stall {data.stall_number} for bathroom {bathroom_id}")
+
+    validate_bathroom_id(bathroom_id)
+    validate_stall_number(data.stall_number)
+
+    # Ensure bathroom exists
+    bathroom_result = await db.execute(
+        select(BathroomModel).where(BathroomModel.bathroom_id == bathroom_id)
+    )
+    if not bathroom_result.scalar_one_or_none():
+        raise NotFoundError("Bathroom", f"ID {bathroom_id}")
+
+    try:
+        # Get stall
+        stall_result = await db.execute(
+            select(StallModel).where(
+                and_(
+                    StallModel.bathroom_id == bathroom_id,
+                    StallModel.stall_number == data.stall_number
+                )
+            )
+        )
+        stall = stall_result.scalar_one_or_none()
+
+        state_changed = False
+
+        if stall:
+            if stall.is_occupied != data.is_occupied:
+                state_changed = True
+                stall.is_occupied = data.is_occupied
+                stall.last_updated = datetime.utcnow()
+        else:
+            state_changed = True
+            stall = StallModel(
+                bathroom_id=bathroom_id,
+                stall_number=data.stall_number,
+                is_occupied=data.is_occupied,
+                last_updated=datetime.utcnow()
+            )
+            db.add(stall)
+
+        if state_changed:
+            new_event = EventModel(
+                bathroom_id=bathroom_id,
+                stall_number=data.stall_number,
+                is_occupied=data.is_occupied,
+                created_at=datetime.utcnow()
+            )
+            db.add(new_event)
+
+        await db.commit()
+        await db.refresh(stall)
+
+        return stall
+
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Error updating stall: {str(e)}", exc_info=True)
+        raise InternalServerError(message="Failed to update stall")
 
 
 @app.get("/v1/bathrooms/{bathroom_id}/vibe-check")
@@ -954,17 +1026,17 @@ async def add_review(
         logger.error(f"Error creating review: {str(e)}", exc_info=True)
         raise InternalServerError(message=f"Failed to create review: {str(e)}")
 
-
+"""
 @app.post("/v1/sensors/stalls", status_code=status.HTTP_200_OK, response_model=StallResponse)
 async def sensor_post_stall_update(
     payload: SensorStallUpdate = Body(...),
     db: AsyncSession = Depends(get_db)
 ):
-    """
+    
     Sensor ingest endpoint.
     Expects JSON: {"id": "<device_id>", "stall_id": <int>, "is_occupied": true/false}
     Updates stalls table by stall_number (= stall_id) and sets last_updated.
-    """
+    
     validate_stall_number(payload.stall_id)
     try:
         stall_result = await db.execute(
@@ -984,3 +1056,182 @@ async def sensor_post_stall_update(
             raise
         logger.error(f"Error ingesting sensor stall update: {str(e)}", exc_info=True)
         raise InternalServerError(message=f"Failed to ingest sensor update: {str(e)}")
+"""
+
+@app.post("/v1/sensors/stalls", status_code=status.HTTP_200_OK, response_model=StallResponse)
+async def sensor_post_stall_update(
+    payload: SensorStallUpdate = Body(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Sensor ingest endpoint.
+    Expects JSON: {"id": "<device_id>", "stall_id": <int>, "is_occupied": true/false}
+
+    Writes:
+      - stalls (current truth used by /v1/locations)
+      - events (history used for analytics/prediction)
+    """
+    validate_stall_number(payload.stall_id)
+
+    try:
+        # 1) Load current snapshot row
+        stall_result = await db.execute(
+            select(StallModel).where(StallModel.stall_number == payload.stall_id)
+        )
+        stall = stall_result.scalar_one_or_none()
+        if not stall:
+            raise NotFoundError("Stall", f"stall_number {payload.stall_id}")
+
+        # 2) Detect real state change
+        changed = (bool(stall.is_occupied) != bool(payload.is_occupied))
+
+        # 3) Update snapshot ALWAYS (so /v1/locations stays correct)
+        stall.is_occupied = payload.is_occupied
+        stall.last_updated = datetime.utcnow()
+
+        # 4) Append event ONLY when changed (prevents redundant spam)
+        if changed:
+            db.add(EventModel(
+                bathroom_id=stall.bathroom_id,   # taken from stall row
+                stall_number=stall.stall_number,
+                is_occupied=payload.is_occupied,
+                created_at=datetime.utcnow(),
+            ))
+
+        await db.commit()
+        await db.refresh(stall)
+        return stall
+
+    except Exception as e:
+        await db.rollback()
+        if isinstance(e, NotFoundError):
+            raise
+        logger.error(f"Error ingesting sensor stall update: {str(e)}", exc_info=True)
+        raise InternalServerError(message=f"Failed to ingest sensor update: {str(e)}")
+    
+@app.get("/v1/bathrooms/{bathroom_id}/availability-forecast", tags=["Real-time"])
+async def availability_forecast(
+    bathroom_id: int,
+    minutes: int = Query(5, ge=1, le=60),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Predict probability that at least one stall will be free within `minutes`.
+
+    Uses:
+      - stalls table: current occupancy (truth right now)
+      - events table: historical occupied->free durations (to estimate rate)
+    Formula used HERE:
+      For currently occupied stalls:
+        P(free within T) = 1 - exp(-T / avg_occupied_time)
+      For currently free stalls:
+        P(free within T) = 1
+    """
+    validate_bathroom_id(bathroom_id)
+
+    # --- 0) Ensure bathroom exists (reuse your existing pattern)
+    bathroom_result = await db.execute(
+        select(BathroomModel).where(BathroomModel.bathroom_id == bathroom_id)
+    )
+    if not bathroom_result.scalar_one_or_none():
+        raise NotFoundError("Bathroom", f"ID {bathroom_id}")
+
+    T_sec = minutes * 60
+
+    # --- 1) Load current stalls for this bathroom (current state)
+    stalls_result = await db.execute(
+        select(StallModel.stall_number, StallModel.is_occupied, StallModel.last_updated)
+        .where(StallModel.bathroom_id == bathroom_id)
+    )
+    stalls = stalls_result.all()
+
+    if not stalls:
+        return {
+            "bathroom_id": bathroom_id,
+            "minutes": minutes,
+            "overall_probability_any_free": 0.0,
+            "per_stall": [],
+            "note": "No stalls registered for this bathroom."
+        }
+
+    stall_numbers = [s.stall_number for s in stalls]
+
+    # --- 2) Compute avg occupied duration per stall from events
+    # We pair each occupied event with the next event for that stall, and only keep occupied->free transitions.
+    # Requires MySQL 8+ window functions (LEAD).
+    avg_sql = text("""
+        WITH ordered AS (
+          SELECT
+            bathroom_id,
+            stall_number,
+            is_occupied,
+            created_at,
+            LEAD(is_occupied) OVER (PARTITION BY bathroom_id, stall_number ORDER BY created_at) AS next_occ,
+            LEAD(created_at)  OVER (PARTITION BY bathroom_id, stall_number ORDER BY created_at) AS next_time
+          FROM events
+          WHERE bathroom_id = :bathroom_id
+            AND stall_number IN :stall_numbers
+        ),
+        sessions AS (
+          SELECT
+            stall_number,
+            TIMESTAMPDIFF(SECOND, created_at, next_time) AS occ_seconds
+          FROM ordered
+          WHERE is_occupied = 1
+            AND next_occ = 0
+            AND next_time IS NOT NULL
+        )
+        SELECT stall_number, AVG(occ_seconds) AS avg_occ_seconds
+        FROM sessions
+        GROUP BY stall_number;
+    """)
+
+    avg_result = await db.execute(
+        avg_sql,
+        {"bathroom_id": bathroom_id, "stall_numbers": tuple(stall_numbers)}
+    )
+    avg_rows = avg_result.all()
+    avg_map = {r.stall_number: (float(r.avg_occ_seconds) if r.avg_occ_seconds is not None else None)
+               for r in avg_rows}
+
+    # --- 3) Apply the formula HERE (THIS IS WHERE IT IS USED)
+    per_stall = []
+    p_none_free = 1.0  # used to compute overall = 1 - product(1 - p_i_free)
+
+    for stall_number, is_occupied, last_updated in stalls:
+        if not is_occupied:
+            # already free => probability free within T is 1
+            p_free_T = 1.0
+            avg_occ = avg_map.get(stall_number)
+        else:
+            avg_occ = avg_map.get(stall_number)
+            if avg_occ is None or avg_occ <= 0:
+                # no history: can't estimate. choose conservative default.
+                p_free_T = 0.0
+            else:
+                # P(free within T) = 1 - exp(-T / avg_occ)
+                p_free_T = 1.0 - math.exp(-float(T_sec) / float(avg_occ))
+
+        per_stall.append({
+            "stall_number": stall_number,
+            "is_occupied_now": bool(is_occupied),
+            "avg_occupied_seconds": avg_occ,   # can be None
+            "p_free_within_minutes": round(p_free_T, 6),
+            "last_updated": last_updated.isoformat() if last_updated else None,
+        })
+
+        p_none_free *= (1.0 - p_free_T)
+
+    overall = 1.0 - p_none_free
+
+    return {
+        "bathroom_id": bathroom_id,
+        "minutes": minutes,
+        "overall_probability_any_free": round(overall, 6),
+        "per_stall": per_stall,
+        "formula_used": "occupied: 1-exp(-T/avg_occ), free: 1",
+        "assumptions": {
+            "avg_occ_seconds": "computed from occupied->free transitions in events",
+            "no_history_behavior": "occupied stall with no history => probability 0.0 (conservative)"
+        }
+    }

@@ -283,3 +283,13 @@ class BathroomMapPoint(BaseModel):
     building_name: str
     longitude: float
     latitude: float
+
+
+class EventModel(Base):
+    __tablename__ = "events"
+
+    event_id = Column(Integer, primary_key=True, autoincrement=True)
+    bathroom_id = Column(Integer, ForeignKey("bathrooms.bathroom_id"), nullable=False)
+    stall_number = Column(Integer, ForeignKey("stalls.stall_number"), nullable=False)
+    is_occupied = Column(Boolean, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
