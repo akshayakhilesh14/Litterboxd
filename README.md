@@ -4,38 +4,35 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.134+-green.svg)](https://fastapi.tiangolo.com)
 
 ## Overview
 
-Litterboxd is a full-stack REST API built for HackIllinois 2026 that allows students to track and report bathroom conditions in real-time. The system features AI-powered summaries via Google Gemini, webhook notifications to facilities coordinators, and real-time stall occupancy tracking.
+Litterboxd is a production-ready REST API built for HackIllinois 2026 that allows students to rate and track bathroom conditions in real-time across campus buildings. The system features AI-powered summaries via Google Gemini 2.5 Flash, webhook notifications for facilities coordinators, real-time stall occupancy tracking (IoT support), user favorites, and comprehensive error handling with request tracking.
 
 **Track:** Stripe's Best Web API  
-**Submission:** Complete, production-ready implementation
+**Status:** Production-ready, fully tested
 
 ## ⭐ Key Features
 
 ### 📊 Comprehensive Rating System
-Track bathrooms across 5 dimensions:
-- **Cleanliness** (1-10 scale)
-- **Ambience** (1-10 scale)
-- **Sink Pressure** (1-10 scale)
-- **Paper Towel Type** (supply tracking)
-- **Toilet Paper Type** (supply tracking)
-- **Facilities**: Baby changing stations & hygiene products
-
-Automatic averaging with real-time updates!
+- 1-10 scale ratings for bathroom conditions
+- Automatic average rating computation
+- Real-time updates across all users
+- Supply level tracking (paper, hygiene products)
+- Accessibility and cleanliness metrics
 
 ### 🤖 AI-Powered Summaries
 Google Gemini 2.5 Flash generates witty, honest 2-sentence bathroom summaries:
 > "This bathroom is surprisingly clean for a basement level. The water pressure will blow your face off (in a good way)."
 
-### 🔔 Webhook Alert System
-When a bathroom rating drops below 4.0/10:
-- ✅ Automatic notification to registered facilities
-- ✅ Includes location, rating, and timestamp
-- ✅ Retry logic with exponential backoff
-- ✅ Failure tracking and monitoring
+### 🔔 Smart Webhook Alert System
+- Automatic notifications when bathroom ratings drop below 4.0/10
+- Includes location, rating, and timestamp
+- Retry logic (3 attempts, 5-second delay between retries)
+- Persistent webhook endpoint registration
+- Request ID tracking for debugging
+- Detailed logging of all delivery attempts
 
 ### ⭐ User Favorites
 - Bookmark favorite bathrooms for quick access
@@ -48,11 +45,19 @@ Perfect for IoT hardware integration:
 - Real-time stall status updates
 - Campus-wide availability view
 
-### 🛡️ Smart Data Protection
-- Unique constraint: one review per user per bathroom
+### 🛡️ Production-Grade Error Handling
+- Standardized error schema across all endpoints
+- 6 error types (validation, not found, conflict, forbidden, unauthorized, server error)
+- Field-level validation feedback
+- Consistent HTTP status codes (200, 201, 204, 400, 403, 404, 409, 500)
+- Request ID tracking for debugging
+- Comprehensive logging middleware
+
+### 🔐 Data Integrity
+- One review per user per bathroom (unique constraint)
 - Faculty-only bathroom registration
-- Cascade deletes for data integrity
-- Comprehensive error handling
+- Cascade deletes for data consistency
+- Async database operations for high concurrency
 
 ## 🚀 Quick Start
 
@@ -137,8 +142,18 @@ DigitalOcean MySQL Database
 
 ## 📋 Documentation
 
-- **[API_DOCUMENTATION.md](./API_DOCUMENTATION.md)** - Complete API reference with examples
-- **[SETUP_GUIDE.md](./SETUP_GUIDE.md)** - Detailed setup and configuration instructions
+### For API Users & Developers
+**📖 [API_GUIDE.md](./API_GUIDE.md)** - Complete developer guide
+- Setup & configuration
+- All 14 endpoints with curl examples
+- Error handling details
+- Webhook integration guide
+- HTTP status codes reference
+- Postman testing guide
+
+### Interactive Documentation
+- **Swagger UI:** http://localhost:8000/docs
+- **ReDoc:** http://localhost:8000/redoc
 
 ## 🧪 Testing Endpoints
 
@@ -180,64 +195,7 @@ curl -X POST http://localhost:8000/v1/bathrooms/{bathroom_id}/reviews \
 curl http://localhost:8000/v1/bathrooms/{bathroom_id}/vibe-check
 ```
 
-## 🎯 Features Highlights
 
-### ✅ Best-in-Class API Design
-- RESTful endpoints
-- Consistent error responses
-- Clear request/response formats
-- Automatic OpenAPI documentation
-
-### ✅ Production-Ready Code
-- Async/await throughout
-- Connection pooling
-- Proper error handling
-- Logging and monitoring support
-
-### ✅ Smart Business Logic
-- Automatic rating calculations
-- Low-supply alerts via webhooks
-- Duplicate review prevention
-- Data integrity constraints
-
-### ✅ Advanced Features
-- AI-powered content generation
-- Webhook notification system
-- User favorites management
-- Real-time stall tracking
-
-## 🗄️ Database Schema
-
-Four core tables with proper relationships:
-
-**Bathrooms** - Location and aggregate ratings
-**Reviews** - Individual user ratings and feedback
-**Webhooks** - Facility coordinator subscriptions
-**Favorites** - User bookmarks
-
-See [SETUP_GUIDE.md](./SETUP_GUIDE.md) for complete schema details.
-
-## 🌟 What Makes This Submission Great
-
-1. **Complete Implementation** - All requirements fulfilled with additional features
-2. **Production Quality** - Async operations, proper error handling, logging
-3. **Smart Features** - Webhook system, AI integration, data integrity
-4. **Excellent Documentation** - API docs, setup guide, inline code comments
-5. **Best Practices** - RESTful design, database optimization, secure practices
-
-## 🎓 HackIllinois 2026
-
-**Hackathon:** HackIllinois 2026  
-**Track:** Stripe's Best Web API  
-**Status:** ✅ Complete & Tested  
-**Date:** February 28, 2026
-
-## 📞 Getting Help
-
-1. Check [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) for endpoint details
-2. Review [SETUP_GUIDE.md](./SETUP_GUIDE.md) for setup issues
-3. Use interactive docs at http://localhost:8000/docs
-4. Check server logs for detailed error information
 
 ## 📄 License
 
