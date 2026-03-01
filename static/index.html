@@ -52,6 +52,11 @@
         <option value="Grainger">Grainger</option>
         <option value="CIF">CIF</option>
       </select>
+      <label>Sort: </label>
+      <select id="sortBy">
+        <option value="default">Default</option>
+        <option value="probability">Probability open (5 min)</option>
+      </select>
       <a href="/review">Submit a review</a>
       <a href="/map">Map / Locations (lat, lng)</a>
     </div>
@@ -64,6 +69,7 @@
     const USER_KEY = 'litterboxd_user_id';
     const content = document.getElementById('content');
     const buildingSelect = document.getElementById('building');
+    const sortSelect = document.getElementById('sortBy');
     const userGate = document.getElementById('user-gate');
     const mainView = document.getElementById('main-view');
 
@@ -127,13 +133,33 @@
       return fetch('/v1/users/' + encodeURIComponent(uid) + '/favorites/' + bathroomId, { method: 'DELETE' });
     }
 
-    function renderList(bathrooms, favoriteIds) {
+    function getAvailabilityForecasts(bathrooms, minutes) {
+      minutes = minutes || 5;
+      return Promise.all(
+        bathrooms.map(b =>
+          fetch('/v1/bathrooms/' + b.bathroom_id + '/availability-forecast?minutes=' + minutes)
+            .then(r => r.ok ? r.json() : { bathroom_id: b.bathroom_id, overall_probability_any_free: null })
+            .then(data => ({ bathroom_id: b.bathroom_id, prob: data.overall_probability_any_free }))
+            .catch(() => ({ bathroom_id: b.bathroom_id, prob: null }))
+        )
+      ).then(results => {
+        const map = {};
+        results.forEach(r => { map[r.bathroom_id] = r.prob; });
+        return map;
+      });
+    }
+
+    function renderList(bathrooms, favoriteIds, opts) {
+      opts = opts || {};
+      const probMap = opts.probMap || {};
+      const showProb = Object.keys(probMap).length > 0;
       if (!bathrooms.length) {
         content.innerHTML = '<p>No bathrooms found.</p>';
         return;
       }
       const favSet = new Set(favoriteIds || []);
-      let html = '<table><thead><tr><th></th><th>ID</th><th>Building</th><th>Floor</th><th>Gender</th><th>Stalls open</th><th>Avg</th><th>Comments Overview</th><th></th></tr></thead><tbody>';
+      const probHeader = showProb ? '<th>Open in 5m</th>' : '';
+      let html = '<table><thead><tr><th></th><th>ID</th><th>Building</th><th>Floor</th><th>Gender</th><th>Stalls open</th><th>Avg</th>' + probHeader + '<th>Comments Overview</th><th></th></tr></thead><tbody>';
       for (const b of bathrooms) {
         const building = b.building_name?.value ?? b.building_name;
         const gender = displayGender(b.bathroom_gender);
@@ -152,6 +178,11 @@
         const isFav = favSet.has(b.bathroom_id);
         const starClass = isFav ? 'star filled' : 'star outline';
         const starChar = isFav ? '★' : '☆';
+        const probCell = showProb ? (() => {
+          const p = probMap[b.bathroom_id];
+          const text = p != null ? (Math.round(p * 100) + '%') : '–';
+          return '<td>' + text + '</td>';
+        })() : '';
         html += `<tr class="${rowClass}">
           <td><span class="${starClass}" data-bathroom-id="${b.bathroom_id}" data-fav="${isFav}" title="${isFav ? 'Unfavorite' : 'Favorite'}">${starChar}</span></td>
           <td>${b.bathroom_id}</td>
@@ -160,6 +191,7 @@
           <td>${escapeHtml(gender) || '–'}</td>
           <td>${stallsText}</td>
           <td>${avg}</td>
+          ${probCell}
           <td>${commentsOverview}</td>
           <td><a href="/reviews?bathroom_id=${b.bathroom_id}">Reviews</a></td>
         </tr>`;
@@ -174,7 +206,7 @@
           const promise = isFav ? removeFavorite(bid) : addFavorite(bid);
           promise.then(r => {
             if (r.ok || r.status === 204) {
-              getFavorites().then(ids => renderList(bathrooms, ids));
+              getFavorites().then(ids => renderList(bathrooms, ids, opts));
             }
           }).catch(() => {});
         });
@@ -197,14 +229,30 @@
 
     function load() {
       content.innerHTML = '<p class="loading">Loading bathrooms…</p>';
+      const sortByProb = sortSelect.value === 'probability';
       Promise.all([getBathrooms(), getFavorites()])
-        .then(([bathrooms, favoriteIds]) => renderList(bathrooms, favoriteIds))
+        .then(([bathrooms, favoriteIds]) => {
+          if (sortByProb && bathrooms.length) {
+            content.innerHTML = '<p class="loading">Loading probability forecasts…</p>';
+            return getAvailabilityForecasts(bathrooms, 5).then(probMap => {
+              const sorted = bathrooms.slice().sort((a, b) => {
+                const pa = probMap[a.bathroom_id] != null ? probMap[a.bathroom_id] : -1;
+                const pb = probMap[b.bathroom_id] != null ? probMap[b.bathroom_id] : -1;
+                return pb - pa;
+              });
+              return [sorted, favoriteIds, { probMap }];
+            });
+          }
+          return [bathrooms, favoriteIds, {}];
+        })
+        .then(([bathrooms, favoriteIds, opts]) => renderList(bathrooms, favoriteIds, opts))
         .catch(e => {
           content.innerHTML = `<p class="err">Failed to load: ${escapeHtml(e.message)}</p>`;
         });
     }
 
     buildingSelect.addEventListener('change', load);
+    sortSelect.addEventListener('change', load);
     showView();
   </script>
 </body>
