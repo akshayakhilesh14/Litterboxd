@@ -261,3 +261,11 @@ class Bathroom(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class SensorStallUpdate(BaseModel):
+    id: str = Field(..., description="Device ID")
+    stall_id: int
+    is_occupied: bool
+    ts: int | None = None
+    seq: int | None = None

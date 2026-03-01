@@ -1,6 +1,6 @@
 import uuid
 import boto3
-from fastapi import UploadFile, File, Form
+from fastapi import UploadFile, File, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from fastapi import FastAPI, HTTPException, status, Depends, Query
@@ -18,7 +18,7 @@ from models import (
     WebhookCreate, WebhookResponse,
     FavoriteCreate, FavoriteResponse,
     StallUpdate, StallResponse,
-    BuildingEnum
+    BuildingEnum, SensorStallUpdate
 )
 from ai_service import generate_vibe_check
 from webhooks import notify_low_supply
@@ -874,3 +874,47 @@ async def add_review(
         await db.rollback()
         logger.error(f"Error creating review: {str(e)}", exc_info=True)
         raise InternalServerError(message=f"Failed to create review: {str(e)}")
+
+
+@app.post("/v1/sensors/stalls", status_code=status.HTTP_200_OK, response_model=StallResponse)
+async def sensor_post_stall_update(
+    payload: SensorStallUpdate = Body(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Sensor ingest endpoint.
+    Expects JSON: {"id":"<device_id>","stall_id":<int>,"is_occupied":true/false}
+    Updates stalls table by stall_number (= stall_id) and sets last_updated.
+    """
+
+    # Validate stall number
+    validate_stall_number(payload.stall_id)
+
+    try:
+        # Find the stall row by stall_number (stall_id from sensor)
+        stall_result = await db.execute(
+            select(StallModel).where(
+                StallModel.stall_number == payload.stall_id)
+        )
+        stall = stall_result.scalar_one_or_none()
+
+        if not stall:
+            raise NotFoundError("Stall", f"stall_number {payload.stall_id}")
+
+        # Update occupancy + timestamp
+        stall.is_occupied = payload.is_occupied
+        stall.last_updated = datetime.utcnow()
+
+        await db.commit()
+        await db.refresh(stall)
+
+        return stall
+
+    except Exception as e:
+        await db.rollback()
+        if isinstance(e, NotFoundError):
+            raise
+        logger.error(
+            f"Error ingesting sensor stall update: {str(e)}", exc_info=True)
+        raise InternalServerError(
+            message=f"Failed to ingest sensor update: {str(e)}")
